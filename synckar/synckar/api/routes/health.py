@@ -35,7 +35,7 @@ def health_check():
 
     # Kafka
     try:
-        from confluent_kafka import AdminClient
+        from confluent_kafka.admin import AdminClient
         admin = AdminClient({"bootstrap.servers": settings.kafka.bootstrap_servers})
         admin.list_topics(timeout=3)
         checks["kafka"] = "healthy"

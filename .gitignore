@@ -1,0 +1,3 @@
+# RSA keys — never commit private keys to version control
+keys/
+*.pem
