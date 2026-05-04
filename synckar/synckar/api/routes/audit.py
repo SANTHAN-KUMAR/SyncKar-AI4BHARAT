@@ -2,13 +2,13 @@
 
 import json
 
-import psycopg2
-import psycopg2.extras
 import structlog
 from fastapi import APIRouter, Query
 from typing import Optional
 
 from synckar.config import settings
+from synckar import db
+import psycopg2.extras
 from synckar.audit.signing import verify_signature
 
 logger = structlog.get_logger()
@@ -19,10 +19,11 @@ router = APIRouter()
 def search_audit(
     ubid: Optional[str] = Query(default=None),
     correlation_id: Optional[str] = Query(default=None),
+    after: Optional[str] = Query(default=None, description="Return rows created before this ISO timestamp"),
     limit: int = Query(default=50, le=200),
 ):
     """Search audit ledger by UBID and/or correlation_id."""
-    conn = psycopg2.connect(settings.database.url)
+    conn = db.get_conn()
     cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
     conditions = []
@@ -34,6 +35,9 @@ def search_audit(
     if correlation_id:
         conditions.append("correlation_id = %s::uuid")
         params.append(correlation_id)
+    if after:
+        conditions.append("created_at < %s::timestamptz")
+        params.append(after)
 
     where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
     params.append(limit)
@@ -43,7 +47,7 @@ def search_audit(
         params,
     )
     rows = cursor.fetchall()
-    conn.close()
+    db.put_conn(conn)
 
     # Convert UUIDs and datetimes to strings
     results = []
@@ -62,7 +66,7 @@ def search_audit(
 @router.get("/trace/{correlation_id}")
 def trace_request(correlation_id: str):
     """End-to-end trace of a single service request by correlation_id."""
-    conn = psycopg2.connect(settings.database.url)
+    conn = db.get_conn()
     cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
     cursor.execute(
@@ -76,7 +80,7 @@ def trace_request(correlation_id: str):
         (correlation_id,),
     )
     conflicts = cursor.fetchall()
-    conn.close()
+    db.put_conn(conn)
 
     def serialize(rows):
         results = []
@@ -101,7 +105,7 @@ def trace_request(correlation_id: str):
 @router.get("/verify/{audit_id}")
 def verify_audit_row(audit_id: str):
     """Verify RSA signature on an audit row (BSA 2023 compliance demo)."""
-    conn = psycopg2.connect(settings.database.url)
+    conn = db.get_conn()
     cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
     cursor.execute(
@@ -109,7 +113,7 @@ def verify_audit_row(audit_id: str):
         (audit_id,),
     )
     row = cursor.fetchone()
-    conn.close()
+    db.put_conn(conn)
 
     if not row:
         return {"error": "Audit row not found", "audit_id": audit_id}

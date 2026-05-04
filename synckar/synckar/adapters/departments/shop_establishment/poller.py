@@ -4,7 +4,6 @@ High-water mark polling strategy (Tier 1).
 Silently skips records without UBID (C10).
 """
 
-import redis
 import structlog
 
 from synckar.config import settings
@@ -12,10 +11,11 @@ from synckar.adapters.departments.shop_establishment.client import ShopEstablish
 from synckar.adapters.departments.shop_establishment.translator import translate_inbound
 from synckar.models.service_request import CanonicalServiceRequest
 from synckar.observability.drift_detector import DriftDetector
+from synckar.pipeline import loop_guard, watermark
 
 logger = structlog.get_logger()
 
-WATERMARK_KEY = "shop_establishment:watermark"
+SYSTEM_ID = "shop_establishment"
 
 
 class ShopEstablishmentPoller:
@@ -24,25 +24,14 @@ class ShopEstablishmentPoller:
     def __init__(
         self,
         client: ShopEstablishmentClient | None = None,
-        redis_client: redis.Redis | None = None,
     ):
         self.client = client or ShopEstablishmentClient()
-        self._redis = redis_client or redis.Redis.from_url(
-            settings.redis.url, decode_responses=True,
-        )
 
     def get_watermark(self) -> str:
-        try:
-            wm = self._redis.get(WATERMARK_KEY)
-            return wm if wm else "2000-01-01T00:00:00Z"
-        except redis.ConnectionError:
-            return "2000-01-01T00:00:00Z"
+        return watermark.get_watermark(SYSTEM_ID, "2000-01-01T00:00:00Z")
 
-    def set_watermark(self, watermark: str) -> None:
-        try:
-            self._redis.set(WATERMARK_KEY, watermark)
-        except redis.ConnectionError:
-            pass
+    def set_watermark(self, value: str) -> None:
+        watermark.set_watermark(SYSTEM_ID, value)
 
     def poll(self) -> list[CanonicalServiceRequest]:
         """Poll for changes, translate, return canonical events."""
@@ -68,6 +57,14 @@ class ShopEstablishmentPoller:
                 logger.debug("shop_skip_no_ubid")
                 continue
             try:
+                if loop_guard.is_recent_write(
+                    SYSTEM_ID,
+                    change.get("ubid", ""),
+                    change.get("field_name", ""),
+                    str(change.get("new_value", "")),
+                ):
+                    logger.debug("loop_guard_skip", system=SYSTEM_ID, ubid=change.get("ubid"))
+                    continue
                 event = translate_inbound(change)
                 events.append(event)
                 ts = change.get("timestamp", "")

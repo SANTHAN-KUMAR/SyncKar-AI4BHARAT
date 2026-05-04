@@ -51,7 +51,7 @@ async def verify_webhook_signature(
     sig_header = signature_header or request.headers.get("X-Signature-256")
     if not sig_header:
         logger.warning("webhook_missing_signature", system_id=system_id)
-        return True  # For prototype: allow unsigned requests
+        raise HTTPException(status_code=401, detail="Missing webhook signature")
 
     # Read and verify body
     body = await request.body()

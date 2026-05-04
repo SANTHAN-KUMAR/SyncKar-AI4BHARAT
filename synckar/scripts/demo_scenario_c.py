@@ -14,7 +14,7 @@ import httpx
 
 SWS_URL = "http://localhost:8000"
 FACTORIES_URL = "http://localhost:8002"
-SYNCKAR_URL = "http://localhost:8080"
+SYNCKAR_URL = "http://localhost:18080"
 
 UBID = "KA-TEST-0003"
 SWS_ADDRESS = "111 MG Road, Updated by SWS, Bangalore 560001"

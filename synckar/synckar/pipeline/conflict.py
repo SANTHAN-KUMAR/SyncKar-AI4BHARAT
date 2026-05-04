@@ -153,6 +153,21 @@ class SlidingWindowConflictDetector:
                     )
                     return existing
 
+            # Same-source update — preserve TTL to avoid extending window
+            if existing_raw and existing.source_system == event.source_system.value:
+                if existing.value == event.new_value:
+                    return None
+                ttl = self._redis.ttl(key)
+                ttl = ttl if ttl and ttl > 0 else self._window_ttl
+                new_entry = ConflictWindowEntry(
+                    source_system=event.source_system.value,
+                    broker_sequence=event.broker_sequence,
+                    correlation_id=str(event.correlation_id),
+                    value=event.new_value,
+                )
+                self._redis.set(key, new_entry.to_json(), ex=ttl)
+                return None
+
             # No conflict — register this event in the window
             new_entry = ConflictWindowEntry(
                 source_system=event.source_system.value,

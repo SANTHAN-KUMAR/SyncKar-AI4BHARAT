@@ -49,9 +49,11 @@ class KafkaSettings(BaseSettings):
 class DatabaseSettings(BaseSettings):
     """PostgreSQL connection configuration."""
     url: str = Field(
-        default="postgresql://synckar:synckar@localhost:5432/synckar",
+        default="postgresql://synckar_app:synckar_app@localhost:5432/synckar",
         alias="DATABASE_URL",
     )
+    pool_min: int = Field(default=2, alias="DB_POOL_MIN")
+    pool_max: int = Field(default=10, alias="DB_POOL_MAX")
 
     model_config = {"env_prefix": "", "extra": "ignore"}
 
@@ -102,6 +104,18 @@ class PipelineSettings(BaseSettings):
     max_retry_attempts: int = Field(default=10)
     retry_backoff_base_seconds: float = Field(default=1.0)
     retry_backoff_max_seconds: float = Field(default=60.0)
+
+    # Consumer task timeout (Kafka -> Celery)
+    consumer_task_timeout_seconds: int = Field(
+        default=30,
+        alias="CONSUMER_TASK_TIMEOUT_SECONDS",
+    )
+
+    # Loop-guard TTL to suppress echo propagation
+    loop_guard_ttl_seconds: int = Field(
+        default=900,
+        alias="LOOP_GUARD_TTL_SECONDS",
+    )
 
     model_config = {"env_prefix": "", "extra": "ignore"}
 
@@ -188,6 +202,12 @@ class Settings(BaseSettings):
 
     # Feature flags
     enable_ai_copilot: bool = Field(default=False, alias="ENABLE_AI_COPILOT")
+
+    # Webhook settings
+    webhook_rate_limit_per_minute: int = Field(
+        default=60,
+        alias="WEBHOOK_RATE_LIMIT_PER_MINUTE",
+    )
 
     model_config = {"env_file": ".env", "env_prefix": "", "extra": "ignore"}
 

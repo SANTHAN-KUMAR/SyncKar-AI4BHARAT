@@ -10,11 +10,11 @@ even during network partitions (Solution §10, Failure #6).
 import json
 from uuid import UUID
 
-import psycopg2
 import structlog
 from confluent_kafka import Producer, KafkaError
 
 from synckar.config import settings
+from synckar import db
 from synckar.models.service_request import CanonicalServiceRequest
 
 logger = structlog.get_logger()
@@ -22,7 +22,7 @@ logger = structlog.get_logger()
 
 def _get_db_connection():
     """Get a PostgreSQL connection from config."""
-    return psycopg2.connect(settings.database.url)
+    return db.get_conn()
 
 
 def _get_kafka_producer() -> Producer:
@@ -60,8 +60,11 @@ def write_to_outbox(
     try:
         cursor = conn.cursor()
         outbox_id_query = """
-            INSERT INTO outbox (correlation_id, ubid, source_system, event_type, payload, status)
-            VALUES (%s, %s, %s, %s, %s, 'PENDING')
+            INSERT INTO outbox (
+                correlation_id, ubid, source_system, event_type, payload,
+                target_topic, status
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, 'PENDING')
             RETURNING id
         """
         payload = event.model_dump_json()
@@ -73,6 +76,7 @@ def write_to_outbox(
                 event.source_system.value,
                 event.request_type.value,
                 payload,
+                topic,
             ),
         )
         outbox_id = cursor.fetchone()[0]
@@ -95,13 +99,13 @@ def write_to_outbox(
         raise
     finally:
         if own_conn:
-            conn.close()
+            db.put_conn(conn)
 
 
 def drain_outbox(batch_size: int = 50) -> int:
     """
     Drain PENDING events from the outbox to Kafka.
-    Returns the number of events drained.
+    Returns the number of events successfully delivered.
 
     This is called by a Celery periodic task. If Kafka is unavailable,
     events stay PENDING and will be drained on the next cycle.
@@ -113,14 +117,38 @@ def drain_outbox(batch_size: int = 50) -> int:
         producer = _get_kafka_producer()
     except Exception as e:
         logger.error("kafka_producer_init_failed", error=str(e))
-        conn.close()
+        db.put_conn(conn)
         return 0
+
+    # Track which outbox IDs were successfully delivered by Kafka callbacks
+    delivered_ids: list = []
+    failed_ids: list = []
+
+    def _make_delivery_callback(outbox_id):
+        def _cb(err, msg):
+            if err:
+                logger.error(
+                    "kafka_delivery_failed",
+                    outbox_id=str(outbox_id),
+                    error=str(err),
+                )
+                failed_ids.append(outbox_id)
+            else:
+                logger.info(
+                    "kafka_delivered",
+                    outbox_id=str(outbox_id),
+                    topic=msg.topic(),
+                    partition=msg.partition(),
+                    offset=msg.offset(),
+                )
+                delivered_ids.append(outbox_id)
+        return _cb
 
     try:
         cursor = conn.cursor()
         cursor.execute(
             """
-            SELECT id, payload, ubid, source_system
+            SELECT id, payload, ubid, source_system, target_topic
             FROM outbox
             WHERE status = 'PENDING'
             ORDER BY created_at
@@ -132,10 +160,10 @@ def drain_outbox(batch_size: int = 50) -> int:
         rows = cursor.fetchall()
 
         for row in rows:
-            outbox_id, payload_str, ubid, source_system = row
+            outbox_id, payload_str, ubid, source_system, target_topic = row
 
-            # Determine the correct Kafka topic based on source system
-            topic = _resolve_topic(source_system)
+            # Determine the correct Kafka topic (prefer explicit target_topic)
+            topic = target_topic or _resolve_topic(source_system)
 
             try:
                 # Publish to Kafka with UBID as partition key
@@ -144,10 +172,9 @@ def drain_outbox(batch_size: int = 50) -> int:
                     topic=topic,
                     key=ubid.encode("utf-8"),
                     value=payload_str.encode("utf-8") if isinstance(payload_str, str) else json.dumps(payload_str).encode("utf-8"),
-                    callback=lambda err, msg, oid=outbox_id: _delivery_callback(err, msg, oid, conn),
+                    callback=_make_delivery_callback(outbox_id),
                 )
                 producer.poll(0)
-                drained += 1
 
             except Exception as e:
                 logger.error(
@@ -158,18 +185,21 @@ def drain_outbox(batch_size: int = 50) -> int:
                 # Leave as PENDING — will be retried on next drain cycle
                 continue
 
-        # Wait for all outstanding Kafka deliveries
+        # Wait for all outstanding Kafka deliveries (blocks until all callbacks fire)
         producer.flush(timeout=10)
 
-        # Mark successfully delivered events
+        # Mark only successfully delivered events as PUBLISHED
+        drained = len(delivered_ids)
         if drained > 0:
-            delivered_ids = [row[0] for row in rows[:drained]]
             placeholders = ",".join(["%s"] * len(delivered_ids))
             cursor.execute(
                 f"UPDATE outbox SET status = 'PUBLISHED' WHERE id IN ({placeholders})",
                 delivered_ids,
             )
             conn.commit()
+
+        if failed_ids:
+            logger.warning("outbox_drain_partial_failure", failed_count=len(failed_ids))
 
         logger.info("outbox_drained", count=drained)
         return drained
@@ -179,7 +209,7 @@ def drain_outbox(batch_size: int = 50) -> int:
         logger.error("outbox_drain_error", error=str(e))
         return 0
     finally:
-        conn.close()
+        db.put_conn(conn)
 
 
 def _resolve_topic(source_system: str) -> str:
@@ -190,21 +220,3 @@ def _resolve_topic(source_system: str) -> str:
         "factories": settings.kafka.topic_dept_factories_changes,
     }
     return topic_map.get(source_system, settings.kafka.topic_sws_changes)
-
-
-def _delivery_callback(err, msg, outbox_id, conn):
-    """Kafka produce delivery callback — logs success or failure."""
-    if err:
-        logger.error(
-            "kafka_delivery_failed",
-            outbox_id=str(outbox_id),
-            error=str(err),
-        )
-    else:
-        logger.info(
-            "kafka_delivered",
-            outbox_id=str(outbox_id),
-            topic=msg.topic(),
-            partition=msg.partition(),
-            offset=msg.offset(),
-        )

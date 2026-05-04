@@ -25,6 +25,7 @@ from synckar.exceptions import (
     UBIDNotFound,
     TranslationError,
     CircuitBreakerOpen,
+    IdempotencyKeyInProgress,
     RateLimitExceeded,
 )
 from synckar.models.service_request import CanonicalServiceRequest, make_idempotency_key
@@ -40,6 +41,12 @@ import redis
 import time
 
 logger = structlog.get_logger()
+
+ADAPTER_TIERS = {
+    "sws": 1,
+    "shop_establishment": 1,
+    "factories": 3,
+}
 
 # Singleton instances
 _sws_client = None
@@ -61,10 +68,11 @@ def _check_rate_limit(adapter_id: str, limit: int = 100, window_seconds: int = 6
     r = _get_redis()
     key = f"rate_limit:{adapter_id}"
     now = int(time.time())
+    member = f"{now}-{time.time_ns()}"
     
     pipe = r.pipeline()
     pipe.zremrangebyscore(key, 0, now - window_seconds)
-    pipe.zadd(key, {str(now) + "-" + str(id(pipe)): now})
+    pipe.zadd(key, {member: now})
     pipe.zcard(key)
     pipe.expire(key, window_seconds)
     results = pipe.execute()
@@ -117,9 +125,16 @@ def dispatch_sws_to_departments(event: CanonicalServiceRequest) -> dict:
     """
     Fan-out an SWS change to all relevant department adapters.
     Each adapter is dispatched independently — one failure doesn't block others (C9).
+
     Returns a dict of {adapter_id: result_or_error}.
+
+    Re-raises TargetWriteError and IdempotencyKeyInProgress so the Celery task
+    can apply exponential-backoff retry.  All other per-adapter errors are caught
+    and recorded so one adapter never blocks another (C9).
     """
     results = {}
+
+    retriable_errors: list[Exception] = []
 
     # Dispatch to Shop Establishment
     try:
@@ -131,6 +146,9 @@ def dispatch_sws_to_departments(event: CanonicalServiceRequest) -> dict:
             update_fn=lambda ubid, fields: _get_shop_client().update_record(ubid, fields),
             api_endpoint_base="shop_establishment",
         )
+    except (TargetWriteError, IdempotencyKeyInProgress, CircuitBreakerOpen, RateLimitExceeded) as e:
+        retriable_errors.append(e)
+        results["shop_establishment"] = {"error": str(e), "retriable": True}
     except Exception as e:
         results["shop_establishment"] = {"error": str(e)}
         logger.error("dispatch_shop_failed", ubid=event.ubid, error=str(e))
@@ -145,9 +163,16 @@ def dispatch_sws_to_departments(event: CanonicalServiceRequest) -> dict:
             update_fn=lambda ubid, fields: _get_factories_client().update_record(ubid, fields),
             api_endpoint_base="factories",
         )
+    except (TargetWriteError, IdempotencyKeyInProgress, CircuitBreakerOpen, RateLimitExceeded) as e:
+        retriable_errors.append(e)
+        results["factories"] = {"error": str(e), "retriable": True}
     except Exception as e:
         results["factories"] = {"error": str(e)}
         logger.error("dispatch_factories_failed", ubid=event.ubid, error=str(e))
+
+    if retriable_errors:
+        # Trigger Celery retry after attempting all adapters
+        raise retriable_errors[0]
 
     return results
 
@@ -155,6 +180,7 @@ def dispatch_sws_to_departments(event: CanonicalServiceRequest) -> dict:
 def dispatch_department_to_sws(event: CanonicalServiceRequest) -> dict:
     """
     Propagate a department change to SWS.
+    Re-raises TargetWriteError / IdempotencyKeyInProgress for Celery retry.
     """
     results = {}
     try:
@@ -166,6 +192,8 @@ def dispatch_department_to_sws(event: CanonicalServiceRequest) -> dict:
             update_fn=lambda ubid, fields: _get_sws_client().update_business(ubid, fields),
             api_endpoint_base="sws",
         )
+    except (TargetWriteError, IdempotencyKeyInProgress, CircuitBreakerOpen, RateLimitExceeded):
+        raise
     except Exception as e:
         results["sws"] = {"error": str(e)}
         logger.error("dispatch_sws_failed", ubid=event.ubid, error=str(e))
@@ -214,7 +242,14 @@ def _propagate_to_adapter(
 
     if existing:
         conflict_detected = True
-        conflict_record = resolve_conflict(event, existing)
+        incoming_tier = ADAPTER_TIERS.get(event.source_system.value, 3)
+        existing_tier = ADAPTER_TIERS.get(existing.source_system, 3)
+        conflict_record = resolve_conflict(
+            event,
+            existing,
+            incoming_tier=incoming_tier,
+            existing_tier=existing_tier,
+        )
         write_conflict_record(conflict_record)
 
         resolution_policy = conflict_record.policy_applied
@@ -261,6 +296,8 @@ def _propagate_to_adapter(
         field_name=event.field_name,
         new_value=event.new_value,
     )
+    # Ensure idempotency is checked per-target adapter so one adapter doesn't block another
+    idem_key = f"{idem_key}:{adapter_id}"
 
     idem_engine = _get_idempotency()
     status, cached = idem_engine.reserve(idem_key)
@@ -272,6 +309,34 @@ def _propagate_to_adapter(
     try:
         # 4. Translate outbound
         native_payload = translate_fn(event)
+
+        # Redis down fallback — compare target state and skip if already matches
+        if status == IdempotencyStatus.NOT_FOUND:
+            target_field = next(
+                (k for k in native_payload.keys() if k != "modified_by"),
+                event.field_name,
+            )
+            try:
+                if adapter_id == "sws":
+                    current = client.get_business(event.ubid)
+                else:
+                    current = client.get_record(event.ubid)
+                current_value = str((current or {}).get(target_field, ""))
+                desired_value = str(native_payload.get(target_field, ""))
+                if current and current_value == desired_value:
+                    write_audit_row(
+                        event=event,
+                        target_system=adapter_id,
+                        api_endpoint=f"{api_endpoint_base}/skipped",
+                        conflict_detected=conflict_detected,
+                        resolution_policy="IDEMPOTENCY_FALLBACK_SKIP",
+                        broker_seq_a=existing.broker_sequence if existing else None,
+                        broker_seq_b=event.broker_sequence,
+                        temporal_confidence=temporal_conf,
+                    )
+                    return {"status": "skipped", "reason": "target_already_matches"}
+            except Exception:
+                pass
 
         # 5. Write to target system
         try:
@@ -287,6 +352,16 @@ def _propagate_to_adapter(
             raise
         except PermanentWriteError:
             idem_engine.release(idem_key)
+            write_audit_row(
+                event=event,
+                target_system=adapter_id,
+                api_endpoint=f"{api_endpoint_base}/failed",
+                conflict_detected=conflict_detected,
+                resolution_policy="FAILED_4XX",
+                broker_seq_a=existing.broker_sequence if existing else None,
+                broker_seq_b=event.broker_sequence,
+                temporal_confidence=temporal_conf,
+            )
             raise
 
         # 6. Mark idempotency as COMPLETED
@@ -312,6 +387,11 @@ def _propagate_to_adapter(
             target=adapter_id,
             field=event.field_name,
         )
+        try:
+            from synckar.pipeline import loop_guard
+            loop_guard.mark_write(adapter_id, event.ubid, event.field_name, event.new_value)
+        except Exception:
+            pass
         return {"status": "success", "target": adapter_id}
 
     except (TargetWriteError, PermanentWriteError):

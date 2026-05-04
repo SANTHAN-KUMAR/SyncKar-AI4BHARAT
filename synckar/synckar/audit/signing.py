@@ -7,7 +7,7 @@ import base64
 import os
 
 from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import padding, rsa
+from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.backends import default_backend
 import structlog
 
@@ -42,12 +42,9 @@ def _load_private_key():
             )
         return _private_key
 
-    # Generate ephemeral key for dev/testing
-    logger.warning("rsa_key_not_found_generating_ephemeral")
-    _private_key = rsa.generate_private_key(
-        public_exponent=65537, key_size=2048, backend=default_backend()
+    raise RuntimeError(
+        "RSA private key not found. Set RSA_PRIVATE_KEY_PATH or RSA_PRIVATE_KEY_BASE64."
     )
-    return _private_key
 
 
 def _load_public_key():

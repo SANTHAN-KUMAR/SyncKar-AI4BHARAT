@@ -40,3 +40,28 @@ dev = [
 [tool.setuptools.packages.find]
 include = ["synckar*"]
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "strict"
+
+[tool.coverage.run]
+# Only measure coverage for the core pipeline/model/adapter modules.
+# API routes, workers, and observability require live infrastructure (Kafka,
+# Redis, PostgreSQL) and are covered by integration tests, not unit tests.
+source = ["synckar"]
+omit = [
+    "synckar/api/*",
+    "synckar/workers/*",
+    "synckar/observability/*",
+    "synckar/schema_copilot/*",
+    "synckar/adapters/sws/poller.py",
+    "synckar/adapters/departments/*/poller.py",
+    "synckar/audit/ledger.py",
+    "synckar/audit/signing.py",
+    "synckar/adapters/base.py",
+]
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true
+

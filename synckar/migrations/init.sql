@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS outbox (
     source_system TEXT NOT NULL,
     event_type TEXT NOT NULL,
     payload JSONB NOT NULL,
+    target_topic TEXT,
     status TEXT NOT NULL DEFAULT 'PENDING',
     broker_sequence BIGINT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -88,6 +89,13 @@ CREATE TABLE IF NOT EXISTS dept_snapshots (
     UNIQUE(system_id, ubid)
 );
 
+-- ─── Poller State (watermarks persisted to DB) ───
+CREATE TABLE IF NOT EXISTS poller_state (
+    system_id TEXT PRIMARY KEY,
+    watermark TEXT NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- ─── Enforce append-only on audit_ledger ───
 -- Create a restricted application role that can only INSERT.
 DO $$
@@ -100,6 +108,6 @@ $$;
 
 GRANT USAGE ON SCHEMA public TO synckar_app;
 GRANT SELECT, INSERT ON audit_ledger TO synckar_app;
-GRANT SELECT, INSERT, UPDATE ON outbox, conflict_log, dead_letter_queue, dept_snapshots TO synckar_app;
+GRANT SELECT, INSERT, UPDATE ON outbox, conflict_log, dead_letter_queue, dept_snapshots, poller_state TO synckar_app;
 -- Explicitly: NO UPDATE or DELETE on audit_ledger
 REVOKE UPDATE, DELETE ON audit_ledger FROM synckar_app;

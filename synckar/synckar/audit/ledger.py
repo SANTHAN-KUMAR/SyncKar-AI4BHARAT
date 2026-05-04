@@ -13,11 +13,11 @@ import hashlib
 import json
 from uuid import UUID
 
-import psycopg2
 import structlog
 
 from synckar.config import settings
 from synckar.audit.signing import sign_audit_row
+from synckar import db
 from synckar.models.audit import AuditRow, ConflictAuditRecord
 from synckar.models.service_request import CanonicalServiceRequest
 
@@ -25,7 +25,7 @@ logger = structlog.get_logger()
 
 
 def _get_db_connection():
-    return psycopg2.connect(settings.database.url)
+    return db.get_conn()
 
 
 def compute_payload_sha256(event: CanonicalServiceRequest) -> str:
@@ -134,7 +134,7 @@ def write_audit_row(
         raise
     finally:
         if own_conn:
-            conn.close()
+            db.put_conn(conn)
 
 
 def write_conflict_record(
@@ -195,4 +195,4 @@ def write_conflict_record(
         raise
     finally:
         if own_conn:
-            conn.close()
+            db.put_conn(conn)

@@ -1,11 +1,12 @@
 """Health and stats routes."""
 
 import redis
-import psycopg2
 import structlog
+import psycopg2.extras
 from fastapi import APIRouter
 
 from synckar.config import settings
+from synckar import db
 
 logger = structlog.get_logger()
 router = APIRouter()
@@ -26,11 +27,20 @@ def health_check():
 
     # PostgreSQL
     try:
-        conn = psycopg2.connect(settings.database.url)
-        conn.close()
+        conn = db.get_conn()
+        db.put_conn(conn)
         checks["postgres"] = "healthy"
     except Exception as e:
         checks["postgres"] = f"unhealthy: {e}"
+
+    # Kafka
+    try:
+        from confluent_kafka import AdminClient
+        admin = AdminClient({"bootstrap.servers": settings.kafka.bootstrap_servers})
+        admin.list_topics(timeout=3)
+        checks["kafka"] = "healthy"
+    except Exception as e:
+        checks["kafka"] = f"unhealthy: {e}"
 
     all_healthy = all(v == "healthy" for v in checks.values())
     return {
@@ -44,7 +54,7 @@ def health_check():
 def get_stats():
     """Dashboard stats — event counts, conflict counts, DLQ depth."""
     try:
-        conn = psycopg2.connect(settings.database.url)
+        conn = db.get_conn()
         cursor = conn.cursor()
 
         cursor.execute("SELECT COUNT(*) FROM audit_ledger")
@@ -62,7 +72,7 @@ def get_stats():
         cursor.execute("SELECT COUNT(*) FROM outbox WHERE status = 'PENDING'")
         outbox_pending = cursor.fetchone()[0]
 
-        conn.close()
+        db.put_conn(conn)
 
         return {
             "audit_entries": audit_count,

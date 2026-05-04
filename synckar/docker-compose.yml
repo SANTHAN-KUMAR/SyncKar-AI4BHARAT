@@ -19,8 +19,8 @@ services:
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
     ports:
       - "9092:9092"
-    volumes:
-      - kafka_data:/tmp/kafka-logs
+    # volumes:
+    #   - kafka_data:/tmp/kafka-logs
     healthcheck:
       test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list || exit 1"]
       interval: 10s
@@ -37,7 +37,7 @@ services:
       POSTGRES_PASSWORD: synckar
       POSTGRES_DB: synckar
     ports:
-      - "5432:5432"
+      - "15432:5432"
     volumes:
       - pg_data:/var/lib/postgresql/data
       - ./migrations/init.sql:/docker-entrypoint-initdb.d/01_init.sql
@@ -111,7 +111,7 @@ services:
       dockerfile: Dockerfile
     container_name: synckar-api
     ports:
-      - "8080:8080"
+      - "18080:8080"
     env_file: .env
     depends_on:
       kafka:

@@ -19,6 +19,15 @@ from synckar.models.mapping import load_mapping, apply_transform, AdapterMapping
 
 logger = structlog.get_logger()
 
+FIELD_TO_REQUEST_TYPE = {
+    "registered_address": RequestType.ADDRESS_CHANGE,
+    "primary_contact": RequestType.ADDRESS_CHANGE,
+    "authorized_signatory": RequestType.SIGNATORY_UPDATE,
+    "license_status": RequestType.LICENSE_RENEWAL,
+    "employee_headcount": RequestType.CLOSURE_REQUEST,
+    "operational_status": RequestType.CLOSURE_REQUEST,
+}
+
 _MAPPING_DIR = os.path.join(os.path.dirname(__file__), "mappings")
 _SCHEMA_REGISTRY_DIR = os.path.join(
     os.path.dirname(__file__), "..", "..", "..", "..", "schema_registry", "shop_establishment"
@@ -73,7 +82,7 @@ def translate_inbound(
     return CanonicalServiceRequest(
         correlation_id=uuid4(),
         ubid=ubid,
-        request_type=RequestType.ADDRESS_CHANGE,
+        request_type=FIELD_TO_REQUEST_TYPE.get(canonical_field, RequestType.ADDRESS_CHANGE),
         source_system=SourceSystem.SHOP_ESTABLISHMENT,
         source_event_id=event_id,
         field_name=canonical_field,

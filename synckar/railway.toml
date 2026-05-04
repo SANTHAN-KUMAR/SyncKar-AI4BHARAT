@@ -1,0 +1,28 @@
+# Railway deployment configuration for SyncKar
+# https://docs.railway.app/reference/config-as-code
+#
+# Services required (create in Railway dashboard):
+#   1. synckar-api       — this Dockerfile, runs FastAPI + Kafka consumer
+#   2. synckar-worker    — same Dockerfile, runs Celery worker
+#   3. synckar-beat      — same Dockerfile, runs Celery beat scheduler
+#   4. synckar-mock-sws  — mock_systems/mock_sws/Dockerfile
+#   5. synckar-mock-shop — mock_systems/mock_dept_shop/Dockerfile
+#   6. synckar-mock-factories — mock_systems/mock_dept_factories/Dockerfile
+#
+# Managed services (add via Railway dashboard):
+#   - PostgreSQL plugin  → DATABASE_URL auto-injected
+#   - Redis plugin       → REDIS_URL auto-injected
+#
+# External Kafka: use Aiven (free tier) or Upstash Kafka.
+# Set KAFKA_* env vars in Railway dashboard.
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+startCommand = "uvicorn synckar.api.main:app --host 0.0.0.0 --port $PORT"
+healthcheckPath = "/health"
+healthcheckTimeout = 30
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3

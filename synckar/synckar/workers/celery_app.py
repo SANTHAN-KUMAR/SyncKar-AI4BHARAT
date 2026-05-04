@@ -52,6 +52,10 @@ celery_app.conf.beat_schedule = {
         "schedule": crontab(minute=0, hour=0),  # Run at midnight UTC
         "kwargs": {"sample_size": 20},
     },
+    "probe-circuit-breakers": {
+        "task": "synckar.workers.celery_app.probe_circuit_breakers_task",
+        "schedule": float(settings.pipeline.circuit_breaker_probe_interval_seconds),
+    },
 }
 
 
@@ -120,6 +124,20 @@ def poll_factories_task():
         logger.error("factories_poll_task_error", error=str(e))
 
 
+@celery_app.task(name="synckar.workers.celery_app.probe_circuit_breakers_task")
+def probe_circuit_breakers_task():
+    """Attempt HALF_OPEN transition for any OPEN circuit breakers."""
+    from synckar.pipeline.circuit_breaker import CircuitBreaker
+
+    adapter_ids = ["sws", "shop_establishment", "factories"]
+    for adapter_id in adapter_ids:
+        try:
+            cb = CircuitBreaker(adapter_id)
+            cb.attempt_half_open()
+        except Exception as e:
+            logger.error("circuit_breaker_probe_error", adapter=adapter_id, error=str(e))
+
+
 @celery_app.task(
     name="synckar.workers.celery_app.propagate_event_task",
     bind=True,
@@ -129,7 +147,7 @@ def poll_factories_task():
 def propagate_event_task(self, event_json: str, source_topic: str):
     """
     Propagate an event from Kafka to target adapters.
-    Retry with exponential backoff on TargetWriteError.
+    Retry with exponential backoff on TargetWriteError or IdempotencyKeyInProgress.
     DLQ on PermanentWriteError.
     """
     import json
@@ -138,7 +156,12 @@ def propagate_event_task(self, event_json: str, source_topic: str):
         dispatch_sws_to_departments,
         dispatch_department_to_sws,
     )
-    from synckar.exceptions import TargetWriteError, PermanentWriteError
+    from synckar.exceptions import (
+        TargetWriteError,
+        PermanentWriteError,
+        IdempotencyKeyInProgress,
+        CircuitBreakerOpen,
+    )
 
     try:
         event_data = json.loads(event_json)
@@ -152,7 +175,21 @@ def propagate_event_task(self, event_json: str, source_topic: str):
         logger.info("propagation_complete", ubid=event.ubid, results=results)
         return results
 
-    except TargetWriteError as e:
+    except IdempotencyKeyInProgress as e:
+        # Another worker is live on this event — back off and retry
+        backoff = min(
+            settings.pipeline.retry_backoff_base_seconds * (2 ** self.request.retries),
+            settings.pipeline.retry_backoff_max_seconds,
+        )
+        logger.warning(
+            "propagation_idem_retry",
+            attempt=self.request.retries + 1,
+            backoff=backoff,
+            error=str(e),
+        )
+        raise self.retry(exc=e, countdown=backoff)
+
+    except (TargetWriteError, CircuitBreakerOpen) as e:
         # Exponential backoff retry — AGENTS.md §10
         backoff = min(
             settings.pipeline.retry_backoff_base_seconds * (2 ** self.request.retries),
@@ -177,30 +214,52 @@ def propagate_event_task(self, event_json: str, source_topic: str):
 
 
 def _write_to_dlq(event_json: str, error_reason: str, source_topic: str):
-    """Write failed event to DLQ table."""
+    """
+    Write failed event to DLQ table AND write an audit row with status=DLQ.
+    Re-raises on failure so Celery retries rather than silently losing the event.
+    """
     import json
-    import psycopg2
-    from synckar.config import settings
+    from synckar import db
 
     try:
         event_data = json.loads(event_json)
-        conn = psycopg2.connect(settings.database.url)
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            INSERT INTO dead_letter_queue (correlation_id, ubid, raw_payload, error_reason, source_system, status)
-            VALUES (%s, %s, %s, %s, %s, 'PENDING')
-            """,
-            (
-                event_data.get("correlation_id"),
-                event_data.get("ubid"),
-                json.dumps(event_data),
-                error_reason,
-                event_data.get("source_system"),
-            ),
-        )
-        conn.commit()
-        conn.close()
+        conn = db.get_conn()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO dead_letter_queue (correlation_id, ubid, raw_payload, error_reason, source_system, status)
+                VALUES (%s, %s, %s, %s, %s, 'PENDING')
+                """,
+                (
+                    event_data.get("correlation_id"),
+                    event_data.get("ubid"),
+                    json.dumps(event_data),
+                    error_reason,
+                    event_data.get("source_system"),
+                ),
+            )
+            conn.commit()
+        finally:
+            db.put_conn(conn)
+
+        # Write audit row so every propagation attempt is traceable (C5)
+        try:
+            from synckar.models.service_request import CanonicalServiceRequest
+            from synckar.audit.ledger import write_audit_row
+            event = CanonicalServiceRequest(**event_data)
+            write_audit_row(
+                event=event,
+                target_system="dlq",
+                api_endpoint="dlq/permanent_failure",
+                conflict_detected=False,
+                resolution_policy="DLQ_PERMANENT_FAILURE",
+            )
+        except Exception as audit_err:
+            logger.warning("dlq_audit_row_failed", error=str(audit_err))
+
         logger.info("dlq_written", ubid=event_data.get("ubid"))
     except Exception as e:
         logger.error("dlq_write_failed", error=str(e))
+        # Re-raise so Celery retries rather than silently dropping the event
+        raise
