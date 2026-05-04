@@ -64,12 +64,15 @@ services:
     networks:
       - synckar
 
-  # ─── Mock Systems (NOT part of synckar package) ───
-  mock-sws:
+  # ─── Mock Systems (combined into one service) ───
+  # All three mock department systems run in a single container.
+  # Prefixes: /sws, /shop, /factories
+  # Set MOCK_*_BASE_URL env vars in synckar-api to point here.
+  mock-systems:
     build:
-      context: ./mock_systems/mock_sws
-      dockerfile: Dockerfile
-    container_name: synckar-mock-sws
+      context: .
+      dockerfile: mock_systems/Dockerfile
+    container_name: synckar-mock-systems
     ports:
       - "8000:8000"
     environment:
@@ -78,33 +81,9 @@ services:
     networks:
       - synckar
 
-  mock-shop:
-    build:
-      context: ./mock_systems/mock_dept_shop
-      dockerfile: Dockerfile
-    container_name: synckar-mock-shop
-    ports:
-      - "8001:8001"
-    environment:
-      - HOST=0.0.0.0
-      - PORT=8001
-    networks:
-      - synckar
-
-  mock-factories:
-    build:
-      context: ./mock_systems/mock_dept_factories
-      dockerfile: Dockerfile
-    container_name: synckar-mock-factories
-    ports:
-      - "8002:8002"
-    environment:
-      - HOST=0.0.0.0
-      - PORT=8002
-    networks:
-      - synckar
-
   # ─── SyncKar Core ───
+  # API + embedded Celery worker + embedded Celery beat all in one process.
+  # No separate celery-worker or celery-beat services needed.
   synckar-api:
     build:
       context: .
@@ -113,53 +92,18 @@ services:
     ports:
       - "18080:8080"
     env_file: .env
+    environment:
+      # Point adapters at the combined mock service
+      - MOCK_SWS_BASE_URL=http://mock-systems:8000/sws
+      - MOCK_SHOP_BASE_URL=http://mock-systems:8000/shop
+      - MOCK_FACTORIES_BASE_URL=http://mock-systems:8000/factories
     depends_on:
-      kafka:
-        condition: service_healthy
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
-      mock-sws:
+      mock-systems:
         condition: service_started
-      mock-shop:
-        condition: service_started
-      mock-factories:
-        condition: service_started
-    networks:
-      - synckar
-
-  celery-worker:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: synckar-celery-worker
-    command: celery -A synckar.workers.celery_app worker --loglevel=info --concurrency=4
-    env_file: .env
-    depends_on:
-      kafka:
-        condition: service_healthy
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    networks:
-      - synckar
-
-  celery-beat:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: synckar-celery-beat
-    command: celery -A synckar.workers.celery_app beat --loglevel=info
-    env_file: .env
-    depends_on:
-      kafka:
-        condition: service_healthy
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
     networks:
       - synckar
 

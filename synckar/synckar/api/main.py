@@ -2,6 +2,12 @@
 SyncKar API — FastAPI application.
 Admin API, webhook receivers, audit search, DLQ management, health check.
 The built React dashboard is served from /dashboard (StaticFiles).
+
+Railway free-plan consolidation:
+  - Celery worker and beat are started as daemon threads on startup so we
+    don't need separate Railway services for them.
+  - The three mock systems are served by a separate combined service
+    (mock_systems/combined_app.py) to stay within the 4-service limit.
 """
 
 import json
@@ -73,10 +79,20 @@ else:
 
 @app.on_event("startup")
 async def startup():
-    """Start Kafka consumer threads on API startup."""
+    """
+    Start background threads on API startup:
+      1. Kafka consumer (dispatches events to Celery tasks)
+      2. Celery worker  (processes propagation tasks)
+      3. Celery beat    (runs polling schedules)
+
+    All three run as daemon threads so they die cleanly when the process exits.
+    This consolidates what would otherwise be three separate Railway services
+    into one, staying within the free-plan 4-service limit.
+    """
     logger.info("synckar_api_starting")
-    # Start Kafka consumers in background threads
     _start_kafka_consumers()
+    _start_celery_worker()
+    _start_celery_beat()
 
 
 def _start_kafka_consumers():
@@ -168,6 +184,68 @@ def _start_kafka_consumers():
 
     thread = threading.Thread(target=consumer_loop, daemon=True, name="kafka-consumer")
     thread.start()
+
+
+def _start_celery_worker():
+    """
+    Start an embedded Celery worker in a daemon thread.
+
+    Uses solo pool (single-threaded) so it runs safely inside the same
+    process as the FastAPI server without forking.  Concurrency is kept
+    intentionally low — the worker only needs to handle propagation tasks
+    that the Kafka consumer dispatches.
+    """
+    def _worker_loop():
+        import time
+        # Brief delay so the API is fully initialised before the worker starts
+        time.sleep(3)
+        try:
+            from synckar.workers.celery_app import celery_app as _celery
+            # solo pool = no subprocess fork; safe inside uvicorn's event loop process
+            _celery.worker_main(
+                argv=[
+                    "worker",
+                    "--loglevel=info",
+                    "--pool=solo",
+                    "--concurrency=1",
+                    "--without-gossip",
+                    "--without-mingle",
+                    "--without-heartbeat",
+                    "-n",
+                    "embedded-worker@%h",
+                ]
+            )
+        except Exception as e:
+            logger.error("embedded_celery_worker_error", error=str(e))
+
+    thread = threading.Thread(target=_worker_loop, daemon=True, name="celery-worker")
+    thread.start()
+    logger.info("embedded_celery_worker_started")
+
+
+def _start_celery_beat():
+    """
+    Start an embedded Celery beat scheduler in a daemon thread.
+
+    Beat writes its schedule state to /tmp/celerybeat-schedule so it
+    doesn't need a writable project directory.
+    """
+    def _beat_loop():
+        import time
+        # Wait for worker to be ready before beat starts firing tasks
+        time.sleep(6)
+        try:
+            from synckar.workers.celery_app import celery_app as _celery
+            _celery.Beat(
+                loglevel="info",
+                schedule="/tmp/celerybeat-schedule",
+            ).run()
+        except Exception as e:
+            logger.error("embedded_celery_beat_error", error=str(e))
+
+    thread = threading.Thread(target=_beat_loop, daemon=True, name="celery-beat")
+    thread.start()
+    logger.info("embedded_celery_beat_started")
 
 
 if __name__ == "__main__":
