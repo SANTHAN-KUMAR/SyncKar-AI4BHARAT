@@ -1,0 +1,17 @@
+# Railway config for the combined mock systems service.
+# This file lives inside mock_systems/ so Railway picks it up
+# when the service root is set to synckar/mock_systems.
+#
+# Alternatively, set the service variable:
+#   RAILWAY_DOCKERFILE_PATH = mock_systems/Dockerfile
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "mock_systems/Dockerfile"
+
+[deploy]
+startCommand = "bash -c 'uvicorn mock_systems.combined_app:app --host 0.0.0.0 --port $PORT'"
+healthcheckPath = "/health"
+healthcheckTimeout = 30
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
