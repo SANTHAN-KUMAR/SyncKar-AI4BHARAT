@@ -35,6 +35,16 @@ class KafkaSettings(BaseSettings):
         default=None,
         alias="KAFKA_SSL_CA_PATH",
     )
+    # Optional: provide CA cert via env and write to ssl_ca_path at runtime.
+    # This is ideal for Railway where mounting files is awkward.
+    ssl_ca_pem: Optional[str] = Field(
+        default=None,
+        alias="KAFKA_SSL_CA_PEM",
+    )
+    ssl_ca_pem_base64: Optional[str] = Field(
+        default=None,
+        alias="KAFKA_SSL_CA_PEM_BASE64",
+    )
 
     # Topic names — matching ARCHITECTURE.md §13
     topic_sws_changes: str = "sws.changes"
