@@ -27,7 +27,6 @@ services:
       - --advertise-rpc-addr
       - redpanda:33145
     ports:
-      - "9092:9092"
       - "9644:9644"
     volumes:
       - redpanda_data:/var/lib/redpanda/data
