@@ -18,7 +18,7 @@ builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
 
 [deploy]
-startCommand = "bash -c 'if [ \"$RUN_MOCK_SYSTEMS\" = \"true\" ]; then uvicorn mock_systems.combined_app:app --host 0.0.0.0 --port $PORT; else uvicorn synckar.api.main:app --host 0.0.0.0 --port $PORT; fi'"
+startCommand = "bash -c 'if [ \"$RUN_MOCK_SYSTEMS\" = \"true\" ]; then uvicorn mock_systems.combined_app:app --host 0.0.0.0 --port $PORT; else alembic upgrade head && uvicorn synckar.api.main:app --host 0.0.0.0 --port $PORT; fi'"
 healthcheckPath = "/health"
 healthcheckTimeout = 30
 restartPolicyType = "ON_FAILURE"
