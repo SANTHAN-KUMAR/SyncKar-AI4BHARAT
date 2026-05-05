@@ -100,9 +100,20 @@ def _log_kafka_config():
     """Log Kafka connection config without secrets for deployment debugging."""
     from synckar.config import settings
 
+    raw_bootstrap = os.environ.get("KAFKA_BOOTSTRAP_SERVERS")
+    if not raw_bootstrap:
+        logger.warning("kafka_bootstrap_env_missing_or_empty")
+    if settings.kafka.bootstrap_servers == "localhost:9092":
+        logger.warning(
+            "kafka_bootstrap_using_default",
+            bootstrap_servers=settings.kafka.bootstrap_servers,
+            env_value=raw_bootstrap or "none",
+        )
+
     logger.info(
         "kafka_config",
         bootstrap_servers=settings.kafka.bootstrap_servers,
+        env_bootstrap_servers=raw_bootstrap or "none",
         security_protocol=settings.kafka.security_protocol,
         sasl_mechanism=settings.kafka.sasl_mechanism or "none",
         sasl_username_set=bool(settings.kafka.sasl_username),
