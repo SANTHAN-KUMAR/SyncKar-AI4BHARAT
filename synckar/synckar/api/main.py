@@ -121,6 +121,18 @@ def _log_kafka_config():
         ssl_ca_path=settings.kafka.ssl_ca_path or "none",
     )
 
+    print(
+        "kafka_config "
+        f"bootstrap_servers={settings.kafka.bootstrap_servers} "
+        f"env_bootstrap_servers={raw_bootstrap or 'none'} "
+        f"security_protocol={settings.kafka.security_protocol} "
+        f"sasl_mechanism={settings.kafka.sasl_mechanism or 'none'} "
+        f"sasl_username_set={bool(settings.kafka.sasl_username)} "
+        f"sasl_password_set={bool(settings.kafka.sasl_password)} "
+        f"ssl_ca_path={settings.kafka.ssl_ca_path or 'none'}",
+        flush=True,
+    )
+
 
 def _start_kafka_consumers():
     """Start Kafka consumer threads for each topic. Auto-restarts on fatal error."""
