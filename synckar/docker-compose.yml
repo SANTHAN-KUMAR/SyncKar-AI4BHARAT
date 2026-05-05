@@ -26,8 +26,7 @@ services:
       - 0.0.0.0:33145
       - --advertise-rpc-addr
       - redpanda:33145
-    ports:
-      - "9644:9644"
+    # No host ports needed — synckar-api connects via Docker internal network only
     volumes:
       - redpanda_data:/var/lib/redpanda/data
     healthcheck:
