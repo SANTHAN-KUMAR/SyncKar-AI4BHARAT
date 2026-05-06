@@ -7,6 +7,8 @@ import PortalSWS from './portals/PortalSWS.jsx'
 import PortalShop from './portals/PortalShop.jsx'
 import PortalFactories from './portals/PortalFactories.jsx'
 import PortalLauncher from './portals/PortalLauncher.jsx'
+import MockLogin from './portals/MockLogin.jsx'
+import AuthGuard from './portals/AuthGuard.jsx'
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
@@ -16,10 +18,12 @@ createRoot(document.getElementById('root')).render(
         <Route path="/" element={<App />} />
 
         {/* Government department portals */}
-        <Route path="/portal" element={<PortalLauncher />} />
-        <Route path="/portal/sws" element={<PortalSWS />} />
-        <Route path="/portal/shop" element={<PortalShop />} />
-        <Route path="/portal/factories" element={<PortalFactories />} />
+        <Route path="/portal/login" element={<MockLogin />} />
+        
+        <Route path="/portal" element={<AuthGuard><PortalLauncher /></AuthGuard>} />
+        <Route path="/portal/sws" element={<AuthGuard><PortalSWS /></AuthGuard>} />
+        <Route path="/portal/shop" element={<AuthGuard><PortalShop /></AuthGuard>} />
+        <Route path="/portal/factories" element={<AuthGuard><PortalFactories /></AuthGuard>} />
       </Routes>
     </BrowserRouter>
   </StrictMode>,

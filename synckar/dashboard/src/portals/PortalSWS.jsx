@@ -2,13 +2,15 @@
  * Mock Karnataka Single Window System (SWS) Portal
  */
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import './portal.css'
 
 const API_BASE = import.meta.env.VITE_API_URL || ''
 const UBIDS = Array.from({ length: 20 }, (_, i) => `KA-TEST-${String(i + 1).padStart(4, '0')}`)
 
 export default function PortalSWS() {
+  const navigate = useNavigate()
+  const loggedInUser = sessionStorage.getItem('mock_logged_in') || 'Demo Officer'
   const [selectedUbid, setSelectedUbid] = useState('KA-TEST-0001')
   const [record, setRecord] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -147,7 +149,13 @@ export default function PortalSWS() {
             </div>
           </div>
           <div className="portal-header-right">
-            <span className="portal-user">Officer Ramesh K.</span>
+            <span className="portal-user">{loggedInUser}</span>
+            <button 
+              onClick={() => { sessionStorage.removeItem('mock_logged_in'); navigate('/portal/login'); }}
+              style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.8)', fontSize: '0.75rem', cursor: 'pointer', textDecoration: 'underline' }}
+            >
+              Sign Out
+            </button>
             <div className="portal-nav-links">
               <Link to="/portal/shop" className="portal-nav-link">Shop Portal</Link>
               <Link to="/portal/factories" className="portal-nav-link">Factories Portal</Link>
