@@ -1,0 +1,669 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SyncKar Containerized Architecture - Live Demo Proof</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --border-color: #334155;
+            
+            --node-core: #3b82f6;
+            --node-mock: #10b981;
+            --node-infra: #f59e0b;
+            --node-db: #8b5cf6;
+            
+            --glow-core: rgba(59, 130, 246, 0.4);
+            --glow-mock: rgba(16, 185, 129, 0.4);
+            --glow-infra: rgba(245, 158, 11, 0.4);
+            --glow-db: rgba(139, 92, 246, 0.4);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            min-height: 100vh;
+            overflow-x: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        header {
+            padding: 2rem;
+            text-align: center;
+            border-bottom: 1px solid var(--border-color);
+            background: rgba(15, 23, 42, 0.8);
+            backdrop-filter: blur(10px);
+            z-index: 10;
+        }
+
+        h1 {
+            font-size: 2rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+            background: linear-gradient(to right, #60a5fa, #a78bfa);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        p.subtitle {
+            color: var(--text-muted);
+            max-width: 800px;
+            margin: 0 auto;
+            line-height: 1.6;
+            font-size: 1.05rem;
+        }
+
+        .container {
+            flex: 1;
+            padding: 3rem 2rem;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+        }
+
+        .architecture-grid {
+            display: grid;
+            grid-template-columns: 350px 400px 350px;
+            gap: 4rem;
+            position: relative;
+            z-index: 2;
+        }
+
+        /* Connecting Lines Container */
+        .svg-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 1;
+        }
+
+        .line {
+            stroke: var(--border-color);
+            stroke-width: 2;
+            stroke-dasharray: 6 6;
+            fill: none;
+            animation: dash 20s linear infinite;
+        }
+
+        .data-packet {
+            fill: #fff;
+            filter: drop-shadow(0 0 4px #fff);
+            offset-path: path("M0,0"); /* Updated via JS */
+            animation: movePacket 3s linear infinite;
+            opacity: 0;
+        }
+
+        @keyframes movePacket {
+            0% { offset-distance: 0%; opacity: 0; }
+            10% { opacity: 1; }
+            90% { opacity: 1; }
+            100% { offset-distance: 100%; opacity: 0; }
+        }
+
+        @keyframes dash {
+            to {
+                stroke-dashoffset: -1000;
+            }
+        }
+
+        .column {
+            display: flex;
+            flex-direction: column;
+            gap: 2rem;
+        }
+
+        .node-group {
+            background: rgba(30, 41, 59, 0.5);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 1.5rem;
+            position: relative;
+        }
+
+        .node-group-title {
+            font-size: 0.875rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-muted);
+            margin-bottom: 1.5rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .node-group-title::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: var(--border-color);
+        }
+
+        .docker-node {
+            background: #1e293b;
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 1.5rem;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            z-index: 2;
+        }
+
+        .docker-node:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+            border-color: var(--node-color);
+        }
+
+        .docker-node.active {
+            border-color: var(--node-color);
+            box-shadow: 0 0 30px var(--glow-color);
+        }
+
+        .node-header {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .node-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0,0,0,0.2);
+            color: var(--node-color);
+        }
+
+        .node-title {
+            font-weight: 600;
+            font-size: 1.125rem;
+        }
+
+        .node-subtitle {
+            font-size: 0.75rem;
+            font-family: 'Fira Code', monospace;
+            color: var(--text-muted);
+            margin-top: 0.25rem;
+        }
+
+        .node-tags {
+            display: flex;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+
+        .tag {
+            font-size: 0.7rem;
+            font-family: 'Fira Code', monospace;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            background: rgba(255,255,255,0.05);
+            color: var(--text-muted);
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        /* Detail Panel */
+        .detail-panel {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            background: #1e293b;
+            border-top: 1px solid var(--border-color);
+            padding: 2rem;
+            transform: translateY(100%);
+            transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+            z-index: 100;
+            box-shadow: 0 -10px 40px rgba(0,0,0,0.5);
+        }
+
+        .detail-panel.open {
+            transform: translateY(0);
+        }
+
+        .detail-close {
+            position: absolute;
+            top: 1.5rem;
+            right: 2rem;
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            cursor: pointer;
+            padding: 0.5rem;
+        }
+
+        .detail-close:hover {
+            color: var(--text-main);
+        }
+
+        .detail-content {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: 1fr 2fr;
+            gap: 3rem;
+        }
+
+        .detail-title {
+            font-size: 1.5rem;
+            color: var(--node-color);
+            margin-bottom: 0.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .detail-desc {
+            color: var(--text-muted);
+            line-height: 1.6;
+            margin-bottom: 1.5rem;
+        }
+
+        .proof-box {
+            background: #0f172a;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 1.25rem;
+        }
+
+        .proof-box h4 {
+            font-size: 0.875rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: #f8fafc;
+            margin-bottom: 0.75rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .proof-box p {
+            font-size: 0.9375rem;
+            color: var(--text-muted);
+            line-height: 1.5;
+        }
+
+        .code-block {
+            background: #0f172a;
+            border: 1px solid #334155;
+            padding: 1rem;
+            border-radius: 8px;
+            font-family: 'Fira Code', monospace;
+            font-size: 0.875rem;
+            color: #e2e8f0;
+            overflow-x: auto;
+            margin-top: 1rem;
+        }
+        
+        .code-block .keyword { color: #c678dd; }
+        .code-block .string { color: #98c379; }
+        .code-block .comment { color: #5c6370; }
+
+        /* Setup Node Specific Colors */
+        .node-mock { --node-color: var(--node-mock); --glow-color: var(--glow-mock); }
+        .node-core { --node-color: var(--node-core); --glow-color: var(--glow-core); }
+        .node-infra { --node-color: var(--node-infra); --glow-color: var(--glow-infra); }
+        .node-db { --node-color: var(--node-db); --glow-color: var(--glow-db); }
+
+        .proof-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: rgba(16, 185, 129, 0.1);
+            color: #10b981;
+            padding: 0.5rem 1rem;
+            border-radius: 100px;
+            font-size: 0.875rem;
+            font-weight: 600;
+            border: 1px solid rgba(16, 185, 129, 0.2);
+            margin-top: 2rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .proof-badge:hover {
+            background: rgba(16, 185, 129, 0.2);
+            transform: scale(1.05);
+        }
+
+        /* Overlay text for judges */
+        .judge-note {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            background: rgba(15, 23, 42, 0.9);
+            border: 1px solid var(--border-color);
+            padding: 1rem 1.5rem;
+            border-radius: 8px;
+            max-width: 350px;
+            z-index: 50;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+            border-left: 4px solid var(--node-core);
+        }
+        .judge-note h4 { margin-bottom: 0.5rem; color: #f8fafc; }
+        .judge-note p { font-size: 0.875rem; color: var(--text-muted); line-height: 1.5; }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>SyncKar Architecture Proof</h1>
+        <p class="subtitle">This visualization proves the production deployment structure on AWS. The mock systems run as completely isolated external entities, communicating with the SyncKar core strictly via HTTP APIs and Kafka events — proving that our interoperability layer works exactly as designed for real, decoupled department systems.</p>
+    </header>
+
+    <div class="container">
+        <svg class="svg-overlay" id="svg-overlay">
+            <!-- Lines generated by JS -->
+        </svg>
+
+        <div class="architecture-grid">
+            <!-- Column 1: Mock External Systems -->
+            <div class="column">
+                <div class="node-group">
+                    <div class="node-group-title">External Department Systems (Simulated)</div>
+                    
+                    <div class="docker-node node-mock" id="node-mock" onclick="showDetails('mock')">
+                        <div class="node-header">
+                            <div class="node-icon">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+                            </div>
+                            <div>
+                                <div class="node-title">synckar-mock-systems</div>
+                                <div class="node-subtitle">Container: Python/FastAPI</div>
+                            </div>
+                        </div>
+                        <div class="node-tags">
+                            <span class="tag">Port: 8000</span>
+                            <span class="tag">SQLite In-Memory</span>
+                            <span class="tag">Independent Process</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Column 2: SyncKar Core -->
+            <div class="column">
+                <div class="node-group" style="border-color: var(--node-core); background: rgba(59, 130, 246, 0.05);">
+                    <div class="node-group-title" style="color: var(--node-core)">SyncKar Middleware Layer</div>
+                    
+                    <div class="docker-node node-core" id="node-core" onclick="showDetails('core')">
+                        <div class="node-header">
+                            <div class="node-icon">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20"></path><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+                            </div>
+                            <div>
+                                <div class="node-title">synckar-api</div>
+                                <div class="node-subtitle">Container: FastAPI + Celery</div>
+                            </div>
+                        </div>
+                        <div class="node-tags">
+                            <span class="tag">Port: 18080</span>
+                            <span class="tag">React Dashboard</span>
+                            <span class="tag">Sync Logic</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Column 3: Infrastructure -->
+            <div class="column">
+                <div class="node-group">
+                    <div class="node-group-title">Event Broker & State Persistence</div>
+                    
+                    <div class="docker-node node-infra" id="node-kafka" onclick="showDetails('kafka')">
+                        <div class="node-header">
+                            <div class="node-icon">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"></path></svg>
+                            </div>
+                            <div>
+                                <div class="node-title">synckar-redpanda</div>
+                                <div class="node-subtitle">Container: Kafka Compatible</div>
+                            </div>
+                        </div>
+                        <div class="node-tags">
+                            <span class="tag">Port: 9092</span>
+                            <span class="tag">Event Streaming</span>
+                        </div>
+                    </div>
+
+                    <div class="docker-node node-db" id="node-postgres" onclick="showDetails('postgres')">
+                        <div class="node-header">
+                            <div class="node-icon">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></svg>
+                            </div>
+                            <div>
+                                <div class="node-title">synckar-postgres</div>
+                                <div class="node-subtitle">Container: PostgreSQL 16</div>
+                            </div>
+                        </div>
+                        <div class="node-tags">
+                            <span class="tag">Audit Ledger</span>
+                            <span class="tag">DLQ</span>
+                        </div>
+                    </div>
+
+                    <div class="docker-node node-db" id="node-redis" onclick="showDetails('redis')" style="--node-color: #ef4444; --glow-color: rgba(239, 68, 68, 0.4);">
+                        <div class="node-header">
+                            <div class="node-icon">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+                            </div>
+                            <div>
+                                <div class="node-title">synckar-redis</div>
+                                <div class="node-subtitle">Container: Redis 7</div>
+                            </div>
+                        </div>
+                        <div class="node-tags">
+                            <span class="tag">Celery Broker</span>
+                            <span class="tag">Idempotency</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Details Panel -->
+    <div class="detail-panel" id="detail-panel">
+        <button class="detail-close" onclick="closeDetails()">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+        <div class="detail-content" id="detail-content">
+            <!-- Populated by JS -->
+        </div>
+    </div>
+
+    <div class="judge-note">
+        <h4>To the Judges</h4>
+        <p>This AWS deployment is built using `docker-compose`. The Mock Systems container simulates legacy department databases. <strong>SyncKar</strong> runs in a completely separate container and has zero direct access to the mock databases. They interact strictly via HTTP APIs and Kafka, exactly mirroring real-world conditions.</p>
+        <button class="proof-badge" onclick="showDetails('compose')">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+            View docker-compose Proof
+        </button>
+    </div>
+
+    <script>
+        const detailsData = {
+            'mock': {
+                title: 'synckar-mock-systems',
+                color: 'var(--node-mock)',
+                icon: '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>',
+                desc: 'A standalone FastAPI container that simulates 3 distinct, independent department systems (SWS, Shop Establishment, and Factories).',
+                proofTitle: 'Evidence of Isolation',
+                proofDesc: 'This container runs on port 8000. It manages three separate in-memory sqlite arrays representing the isolated databases. The SyncKar core cannot directly query these databases; it must HTTP poll their respective REST APIs.',
+                code: `<span class="comment"># mock_systems/main.py</span>\n<span class="keyword">from</span> fastapi <span class="keyword">import</span> FastAPI\n\napp = FastAPI()\napp.include_router(sws.router, prefix=<span class="string">"/sws"</span>)\napp.include_router(shop.router, prefix=<span class="string">"/shop"</span>)\napp.include_router(factories.router, prefix=<span class="string">"/factories"</span>)`
+            },
+            'core': {
+                title: 'synckar-api (Middleware Core)',
+                color: 'var(--node-core)',
+                icon: '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20"></path><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>',
+                desc: 'The brain of the operation. This container runs the FastAPI gateway, hosts the React frontend build, and embeds the Celery beat/worker processes for polling and dispatching.',
+                proofTitle: 'Evidence of Event-Driven Design',
+                proofDesc: 'The Celery beat scheduler polls the mock APIs. When changes are detected, it translates them to a CanonicalServiceRequest and pushes them to Redpanda (Kafka). Separate consumers read these events and apply conflict resolution algorithms.',
+                code: `<span class="comment"># docker-compose.yml</span>\n<span class="keyword">environment</span>:\n  - KAFKA_BOOTSTRAP_SERVERS=redpanda:9092\n  - MOCK_SWS_BASE_URL=http://mock-systems:8000/sws\n  - MOCK_SHOP_BASE_URL=http://mock-systems:8000/shop`
+            },
+            'kafka': {
+                title: 'synckar-redpanda (Kafka)',
+                color: 'var(--node-infra)',
+                icon: '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"></path></svg>',
+                desc: 'Redpanda acts as a drop-in replacement for Apache Kafka. It handles the reliable, ordered delivery of synchronization events between departments.',
+                proofTitle: 'Evidence of Message Queueing',
+                proofDesc: 'Using the Outbox pattern, SyncKar pushes events to topics like synckar.sws.changes. The dispatcher consumes these topics to achieve decoupled fan-out to the other systems.',
+                code: `<span class="comment"># synckar/pipeline/outbox.py</span>\nproducer.produce(\n    topic=topic,\n    value=event.model_dump_json(),\n    callback=_delivery_report\n)`
+            },
+            'postgres': {
+                title: 'synckar-postgres',
+                color: 'var(--node-db)',
+                icon: '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></svg>',
+                desc: 'The permanent record. Stores the immutable Audit Ledger, Conflict Logs, and the Dead Letter Queue (DLQ).',
+                proofTitle: 'Evidence of Compliance',
+                proofDesc: 'Even if the system crashes, no data is lost because every event is logged to the Postgres ledger with cryptographic hashes ensuring BSA-compliance.',
+                code: `<span class="comment"># migrations/init.sql</span>\n<span class="keyword">CREATE TABLE</span> audit_ledger (\n    audit_id UUID PRIMARY KEY,\n    ubid VARCHAR NOT NULL,\n    signature TEXT NOT NULL\n);`
+            },
+            'redis': {
+                title: 'synckar-redis',
+                color: '#ef4444',
+                icon: '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>',
+                desc: 'High-speed ephemeral storage. Acts as the Celery task broker and manages distributed state.',
+                proofTitle: 'Evidence of Robustness',
+                proofDesc: 'Redis enforces idempotency (preventing duplicate syncs), sliding window conflict detection (tracking temporal edits), and API rate limiting.',
+                code: `<span class="comment"># synckar/pipeline/idempotency.py</span>\nr = redis.Redis.from_url(url)\n<span class="keyword">if not</span> r.setnx(idem_key, <span class="string">"IN_PROGRESS"</span>):\n    <span class="keyword">return</span> IdempotencyStatus.IN_PROGRESS`
+            },
+            'compose': {
+                title: 'Docker Compose Overview',
+                color: '#f8fafc',
+                icon: '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>',
+                desc: 'The entire stack is orchestrated using Docker Compose on the AWS EC2 instance. This guarantees environment consistency and network isolation.',
+                proofTitle: 'Network Isolation',
+                proofDesc: 'All containers communicate over an internal Docker bridge network (\`synckar\`). The mock system is completely isolated from Postgres. Only the API container exposes port 18080 to the outside world.',
+                code: `<span class="keyword">services</span>:\n  <span class="string">mock-systems</span>:\n    image: mock_systems\n  <span class="string">synckar-api</span>:\n    image: synckar_api\n    depends_on:\n      - mock-systems\n      - postgres\n      - redpanda`
+            }
+        };
+
+        let activeNode = null;
+
+        function showDetails(id) {
+            const data = detailsData[id];
+            if (!data) return;
+
+            // Highlight node
+            if (activeNode) activeNode.classList.remove('active');
+            if (id !== 'compose') {
+                activeNode = document.getElementById('node-' + id);
+                if (activeNode) activeNode.classList.add('active');
+            }
+
+            const html = \`
+                <div>
+                    <h2 class="detail-title" style="color: \${data.color}">
+                        \${data.icon}
+                        \${data.title}
+                    </h2>
+                    <p class="detail-desc">\${data.desc}</p>
+                </div>
+                <div>
+                    <div class="proof-box">
+                        <h4>
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+                            \${data.proofTitle}
+                        </h4>
+                        <p>\${data.proofDesc}</p>
+                        <div class="code-block"><pre>\${data.code}</pre></div>
+                    </div>
+                </div>
+            \`;
+
+            document.getElementById('detail-content').innerHTML = html;
+            document.getElementById('detail-panel').classList.add('open');
+        }
+
+        function closeDetails() {
+            document.getElementById('detail-panel').classList.remove('open');
+            if (activeNode) {
+                activeNode.classList.remove('active');
+                activeNode = null;
+            }
+        }
+
+        // Draw connecting animated lines
+        function drawLines() {
+            const svg = document.getElementById('svg-overlay');
+            svg.innerHTML = '';
+            
+            const mock = document.getElementById('node-mock');
+            const core = document.getElementById('node-core');
+            const kafka = document.getElementById('node-kafka');
+            const pg = document.getElementById('node-postgres');
+            const redis = document.getElementById('node-redis');
+
+            function createConnection(startNode, endNode, isBidirectional = false) {
+                const start = startNode.getBoundingClientRect();
+                const end = endNode.getBoundingClientRect();
+                
+                // Adjust for scroll
+                const startX = start.left + start.width / 2;
+                const startY = start.top + start.height / 2;
+                const endX = end.left + end.width / 2;
+                const endY = end.top + end.height / 2;
+
+                // Create curved path
+                const dx = endX - startX;
+                const dy = endY - startY;
+                const pathData = \`M \${startX} \${startY} C \${startX + dx/2} \${startY}, \${endX - dx/2} \${endY}, \${endX} \${endY}\`;
+
+                const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+                path.setAttribute('d', pathData);
+                path.setAttribute('class', 'line');
+                svg.appendChild(path);
+
+                // Create animated packet
+                const packet = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+                packet.setAttribute('r', '4');
+                packet.setAttribute('class', 'data-packet');
+                packet.style.offsetPath = \`path("\${pathData}")\`;
+                packet.style.animationDelay = Math.random() * 2 + 's';
+                svg.appendChild(packet);
+
+                if (isBidirectional) {
+                    const reversePathData = \`M \${endX} \${endY} C \${endX - dx/2} \${endY}, \${startX + dx/2} \${startY}, \${startX} \${startY}\`;
+                    const packet2 = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+                    packet2.setAttribute('r', '4');
+                    packet2.setAttribute('class', 'data-packet');
+                    packet2.style.offsetPath = \`path("\${reversePathData}")\`;
+                    packet2.style.animationDelay = Math.random() * 2 + 1 + 's';
+                    svg.appendChild(packet2);
+                }
+            }
+
+            createConnection(mock, core, true); // Polling & dispatching
+            createConnection(core, kafka, true); // Producing & consuming
+            createConnection(core, pg, false); // Writing to ledger
+            createConnection(core, redis, true); // State checks
+        }
+
+        window.addEventListener('resize', drawLines);
+        window.addEventListener('load', () => {
+            setTimeout(drawLines, 100);
+        });
+    </script>
+</body>
+</html>

@@ -54,6 +54,11 @@ Polling → Translate → Outbox → Kafka → Consume → Conflict Check
 → Idempotency → Translate Outbound → Write Target → Audit Log
 ```
 
+### Interactive Architecture Proofs
+We have built interactive HTML visualizations to prove the architectural decoupling of the system. These can be opened in any web browser and demonstrate the containerized deployment model:
+- **[Live Deployment Proof](architecture-demo.html)**: Interactive visualization of the 5-container Docker Compose architecture on AWS. Proves network isolation and event-driven data flow.
+- **[System Architecture](../synckar_architecture.html)**: High-level system design and policy matrix visualization.
+
 ### Technology Stack
 - **Runtime**: Python 3.11+, FastAPI, Celery
 - **Event Bus**: Apache Kafka (KRaft, per-UBID partitioning)
