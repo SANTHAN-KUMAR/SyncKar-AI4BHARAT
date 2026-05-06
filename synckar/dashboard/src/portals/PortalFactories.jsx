@@ -1,13 +1,12 @@
 /**
  * Mock Factories Department Portal
- * Simulates the department's internal factory record management system.
  */
 import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import './portal.css'
 
 const API_BASE = import.meta.env.VITE_API_URL || ''
-const UBIDS = Array.from({ length: 15 }, (_, i) => `KA-TEST-${String(i + 1).padStart(4, '0')}`)
+const UBIDS = Array.from({ length: 20 }, (_, i) => `KA-TEST-${String(i + 1).padStart(4, '0')}`)
 
 export default function PortalFactories() {
   const [selectedUbid, setSelectedUbid] = useState('KA-TEST-0001')
@@ -36,9 +35,7 @@ export default function PortalFactories() {
         contact_number: data.contact_number || '',
         worker_count: data.worker_count || 0,
         factory_status: data.factory_status || 'active',
-        lic_status: data.lic_status || 'valid',
-        safety_cert: data.safety_cert || 'approved',
-        labor_violations: data.labor_violations || 'none',
+        hazard_category: data.hazard_category || 'low',
       })
     } catch {
       setRecord(null)
@@ -61,16 +58,15 @@ export default function PortalFactories() {
       if (!res.ok) throw new Error('Update failed')
       const data = await res.json()
       const updated = data.updated_fields || []
-      showToast(`✅ Factory record updated. Fields changed: ${updated.join(', ') || 'none'}`)
+      showToast(`RECORD UPDATED. FIELDS: ${updated.join(', ') || 'NONE'}`, 'success')
       setActivity(a => [{
         time: new Date().toLocaleTimeString(),
         ubid: selectedUbid,
         fields: updated.join(', ') || '—',
-        user: 'Inspector Suresh B.',
       }, ...a.slice(0, 9)])
       await fetchRecord(selectedUbid)
     } catch (err) {
-      showToast(`❌ Update failed: ${err.message}`, 'error')
+      showToast(`UPDATE FAILED: ${err.message}`, 'error')
     } finally {
       setSaving(false)
     }
@@ -78,26 +74,30 @@ export default function PortalFactories() {
 
   return (
     <div className="portal-root portal-factories">
-      <header className="portal-header factories-header">
+      <header className="portal-header">
         <div className="portal-header-inner">
           <div className="portal-emblem">
-            <div className="portal-emblem-circle factories-emblem">🏭</div>
+            <div className="portal-emblem-circle factories-emblem">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M2 20h20M4 20V4l8 6 8-6v16"></path>
+              </svg>
+            </div>
             <div>
-              <div className="portal-gov-name">Government of Karnataka</div>
-              <div className="portal-dept-name">Department of Factories, Boilers, Industrial Safety & Health — Record System</div>
+              <div className="portal-gov-name">Dept. of Factories & Boilers</div>
+              <div className="portal-dept-name">Factories Portal</div>
             </div>
           </div>
           <div className="portal-header-right">
-            <span className="portal-user">👤 Inspector Suresh B. | Factories Dept.</span>
+            <span className="portal-user">DIRECTOR ANIL P. | FACTORIES DEPT</span>
             <div className="portal-nav-links">
-              <Link to="/portal/sws" className="portal-nav-link">🏛️ SWS Portal</Link>
-              <Link to="/portal/shop" className="portal-nav-link">🏪 Shop Est. Portal</Link>
-              <Link to="/" className="portal-nav-link portal-nav-link-dashboard">📊 SyncKar Dashboard</Link>
+              <Link to="/portal/sws" className="portal-nav-link">SWS</Link>
+              <Link to="/portal/shop" className="portal-nav-link">SHOP EST.</Link>
+              <Link to="/" className="portal-nav-link portal-nav-link-dashboard">DASHBOARD</Link>
             </div>
           </div>
         </div>
         <div className="portal-breadcrumb">
-          Home &rsaquo; Factory Records &rsaquo; Update Factory Record
+          HOME &rsaquo; FACTORIES &rsaquo; UPDATE RECORD
         </div>
       </header>
 
@@ -105,15 +105,15 @@ export default function PortalFactories() {
 
       <main className="portal-main">
         <div className="portal-page-title factories-title">
-          <h1>Update Factory Record</h1>
-          <p>Modify factory registration details. Compliance fields (license status, safety cert, labor violations) are <strong>authoritative in this department</strong> — SyncKar applies DEPT_WINS policy for these fields.</p>
+          <h1>Factory Compliance Record</h1>
+          <p>MUTATIONS ARE AUTOMATICALLY PROPAGATED VIA SYNCKAR EVENT BUS.</p>
         </div>
 
         <div className="portal-layout">
           <div className="portal-form-section">
             <div className="portal-card">
               <div className="portal-card-header factories-header-card">
-                <span>📋 Factory Record — Factories Dept.</span>
+                <span>ENTITY DETAILS &mdash; FACTORIES</span>
                 <select
                   className="portal-ubid-select"
                   value={selectedUbid}
@@ -124,51 +124,49 @@ export default function PortalFactories() {
               </div>
 
               {loading ? (
-                <div className="portal-loading"><div className="portal-spinner factories-spinner" />Loading record…</div>
+                <div className="portal-loading">
+                  <div className="portal-spinner factories-spinner" />
+                  FETCHING RECORD...
+                </div>
               ) : !record ? (
-                <div className="portal-empty">Record not found for {selectedUbid} in Factories Dept.</div>
+                <div className="portal-empty">ENTITY {selectedUbid} NOT FOUND</div>
               ) : (
                 <form onSubmit={handleSubmit} className="portal-form">
                   <div className="portal-form-row">
                     <div className="portal-field">
-                      <label>UBID</label>
+                      <label>TARGET ID (UBID)</label>
                       <input type="text" value={selectedUbid} disabled className="portal-input portal-input-disabled" />
                     </div>
                     <div className="portal-field">
-                      <label>Factory License No.</label>
-                      <input type="text" value={record.factory_license_no || ''} disabled className="portal-input portal-input-disabled" />
+                      <label>ENTITY NAME (READ-ONLY)</label>
+                      <input type="text" value={record.business_name || ''} disabled className="portal-input portal-input-disabled" />
+                      <span className="portal-hint">CONTROLLED BY SWS</span>
                     </div>
                   </div>
 
                   <div className="portal-field">
-                    <label>Business Name</label>
-                    <input type="text" value={record.business_name || ''} disabled className="portal-input portal-input-disabled" />
-                  </div>
-
-                  <div className="portal-field">
-                    <label>Factory Address <span className="portal-required">*</span></label>
+                    <label>FACTORY ADDRESS <span className="portal-required">*</span></label>
                     <input
                       type="text"
                       className="portal-input"
                       value={form.factory_address}
                       onChange={e => setForm(f => ({ ...f, factory_address: e.target.value }))}
                     />
-                    <span className="portal-hint">⚠️ Address conflicts with SWS will be resolved by SWS_WINS policy</span>
+                    <span className="portal-hint">NOTE: SWS IS AUTHORITATIVE. OVERWRITES MAY BE REVERTED ON CONFLICT.</span>
                   </div>
 
                   <div className="portal-form-row">
                     <div className="portal-field">
-                      <label>Signatory Name</label>
+                      <label>SIGNATORY NAME</label>
                       <input
                         type="text"
                         className="portal-input"
                         value={form.signatory_name}
                         onChange={e => setForm(f => ({ ...f, signatory_name: e.target.value }))}
                       />
-                      <span className="portal-hint">Changes here propagate to SWS</span>
                     </div>
                     <div className="portal-field">
-                      <label>Contact Number</label>
+                      <label>CONTACT NUMBER</label>
                       <input
                         type="text"
                         className="portal-input"
@@ -178,9 +176,11 @@ export default function PortalFactories() {
                     </div>
                   </div>
 
+                  <div className="portal-section-label">SAFETY & COMPLIANCE</div>
+                  
                   <div className="portal-form-row">
                     <div className="portal-field">
-                      <label>Worker Count</label>
+                      <label>WORKER COUNT</label>
                       <input
                         type="number"
                         className="portal-input"
@@ -190,69 +190,39 @@ export default function PortalFactories() {
                       />
                     </div>
                     <div className="portal-field">
-                      <label>Factory Status</label>
+                      <label>FACTORY STATUS</label>
                       <select
                         className="portal-input"
                         value={form.factory_status}
                         onChange={e => setForm(f => ({ ...f, factory_status: e.target.value }))}
                       >
-                        <option value="active">Active</option>
-                        <option value="inactive">Inactive</option>
-                        <option value="suspended">Suspended</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="portal-section-label">🔒 Compliance Fields (DEPT_WINS — Factories is authoritative)</div>
-
-                  <div className="portal-form-row">
-                    <div className="portal-field">
-                      <label>License Status</label>
-                      <select
-                        className="portal-input portal-input-compliance"
-                        value={form.lic_status}
-                        onChange={e => setForm(f => ({ ...f, lic_status: e.target.value }))}
-                      >
-                        <option value="valid">Valid</option>
-                        <option value="expired">Expired</option>
-                        <option value="revoked">Revoked</option>
-                        <option value="suspended">Suspended</option>
+                        <option value="active">ACTIVE</option>
+                        <option value="inactive">INACTIVE</option>
+                        <option value="suspended">SUSPENDED</option>
                       </select>
                     </div>
                     <div className="portal-field">
-                      <label>Safety Certificate</label>
+                      <label>HAZARD CATEGORY</label>
                       <select
                         className="portal-input portal-input-compliance"
-                        value={form.safety_cert}
-                        onChange={e => setForm(f => ({ ...f, safety_cert: e.target.value }))}
+                        value={form.hazard_category}
+                        onChange={e => setForm(f => ({ ...f, hazard_category: e.target.value }))}
                       >
-                        <option value="approved">Approved</option>
-                        <option value="pending">Pending</option>
-                        <option value="rejected">Rejected</option>
-                        <option value="expired">Expired</option>
+                        <option value="low">LOW</option>
+                        <option value="medium">MEDIUM</option>
+                        <option value="high">HIGH</option>
+                        <option value="extreme">EXTREME</option>
                       </select>
-                    </div>
-                    <div className="portal-field">
-                      <label>Labor Violations</label>
-                      <select
-                        className="portal-input portal-input-compliance"
-                        value={form.labor_violations}
-                        onChange={e => setForm(f => ({ ...f, labor_violations: e.target.value }))}
-                      >
-                        <option value="none">None</option>
-                        <option value="minor">Minor</option>
-                        <option value="major">Major</option>
-                        <option value="critical">Critical</option>
-                      </select>
+                      <span className="portal-hint">LOCAL FIELD ONLY. DO NOT SYNC.</span>
                     </div>
                   </div>
 
                   <div className="portal-form-footer">
                     <div className="portal-sync-note factories-sync-note">
-                      🔄 SyncKar polls this system every 10 seconds. Signatory changes will propagate to SWS. Compliance fields (license, safety, labor) are authoritative here.
+                      SYNCKAR WILL DETECT THIS MUTATION AND PROPAGATE IT TO CONNECTED SYSTEMS.
                     </div>
                     <button type="submit" className="portal-btn portal-btn-factories" disabled={saving}>
-                      {saving ? '⏳ Submitting…' : '✅ Submit Update'}
+                      {saving ? 'EXECUTING...' : 'COMMIT UPDATE'}
                     </button>
                   </div>
                 </form>
@@ -262,26 +232,23 @@ export default function PortalFactories() {
 
           <div className="portal-sidebar">
             <div className="portal-card">
-              <div className="portal-card-header factories-header-card">📊 Current Record State</div>
+              <div className="portal-card-header factories-header-card">CURRENT RECORD STATE</div>
               {record && (
                 <div className="portal-record-view">
                   {[
                     ['UBID', selectedUbid],
-                    ['License No', record.factory_license_no],
-                    ['Business Name', record.business_name],
+                    ['Entity', record.business_name],
                     ['Address', record.factory_address],
                     ['Signatory', record.signatory_name],
                     ['Contact', record.contact_number],
                     ['Workers', record.worker_count],
                     ['Status', record.factory_status],
-                    ['License', record.lic_status],
-                    ['Safety Cert', record.safety_cert],
-                    ['Labor', record.labor_violations],
-                    ['Last Modified', record.last_modified?.slice(0, 19)],
+                    ['Hazard', record.hazard_category],
+                    ['Modified', record.last_modified?.slice(0, 19)],
                   ].map(([k, v]) => (
                     <div key={k} className="portal-record-row">
                       <span className="portal-record-key">{k}</span>
-                      <span className="portal-record-val">{v ?? '—'}</span>
+                      <span className="portal-record-val">{v || '—'}</span>
                     </div>
                   ))}
                 </div>
@@ -289,9 +256,9 @@ export default function PortalFactories() {
             </div>
 
             <div className="portal-card">
-              <div className="portal-card-header factories-header-card">📝 Recent Activity</div>
+              <div className="portal-card-header factories-header-card">SESSION ACTIVITY</div>
               {activity.length === 0 ? (
-                <div className="portal-empty-sm">No updates yet this session</div>
+                <div className="portal-empty-sm">NO MUTATIONS RECORDED</div>
               ) : (
                 <div className="portal-activity">
                   {activity.map((a, i) => (
@@ -309,8 +276,8 @@ export default function PortalFactories() {
       </main>
 
       <footer className="portal-footer factories-footer">
-        <div>© 2024 Government of Karnataka — Dept. of Factories, Boilers, Industrial Safety & Health</div>
-        <div>Powered by SyncKar Interoperability Layer | BSA 2023 Compliant</div>
+        <div>GOVERNMENT OF KARNATAKA — FACTORIES TERMINAL</div>
+        <div>POWERED BY SYNCKAR INTEROPERABILITY LAYER</div>
       </footer>
     </div>
   )

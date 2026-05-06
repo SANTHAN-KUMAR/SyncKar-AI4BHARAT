@@ -1,13 +1,12 @@
 /**
- * Mock Shop Establishment Department Portal
- * Simulates the department's internal record management system.
+ * Mock Shop Establishment Portal
  */
 import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import './portal.css'
 
 const API_BASE = import.meta.env.VITE_API_URL || ''
-const UBIDS = Array.from({ length: 18 }, (_, i) => `KA-TEST-${String(i + 1).padStart(4, '0')}`)
+const UBIDS = Array.from({ length: 20 }, (_, i) => `KA-TEST-${String(i + 1).padStart(4, '0')}`)
 
 export default function PortalShop() {
   const [selectedUbid, setSelectedUbid] = useState('KA-TEST-0001')
@@ -36,7 +35,7 @@ export default function PortalShop() {
         Contact_Phone: data.Contact_Phone || '',
         Emp_Count: data.Emp_Count || 0,
         Op_Status: data.Op_Status || 'active',
-        Lic_Status: data.Lic_Status || 'valid',
+        Compliance_Score: data.Compliance_Score || 100,
       })
     } catch {
       setRecord(null)
@@ -59,16 +58,15 @@ export default function PortalShop() {
       if (!res.ok) throw new Error('Update failed')
       const data = await res.json()
       const updated = data.updated_fields || []
-      showToast(`✅ Record updated. Fields changed: ${updated.join(', ') || 'none'}`)
+      showToast(`RECORD UPDATED. FIELDS: ${updated.join(', ') || 'NONE'}`, 'success')
       setActivity(a => [{
         time: new Date().toLocaleTimeString(),
         ubid: selectedUbid,
         fields: updated.join(', ') || '—',
-        user: 'Inspector Priya M.',
       }, ...a.slice(0, 9)])
       await fetchRecord(selectedUbid)
     } catch (err) {
-      showToast(`❌ Update failed: ${err.message}`, 'error')
+      showToast(`UPDATE FAILED: ${err.message}`, 'error')
     } finally {
       setSaving(false)
     }
@@ -79,23 +77,27 @@ export default function PortalShop() {
       <header className="portal-header">
         <div className="portal-header-inner">
           <div className="portal-emblem">
-            <div className="portal-emblem-circle shop-emblem">🏪</div>
+            <div className="portal-emblem-circle shop-emblem">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+              </svg>
+            </div>
             <div>
-              <div className="portal-gov-name">Government of Karnataka</div>
-              <div className="portal-dept-name">Department of Shop & Commercial Establishment — Record Management System</div>
+              <div className="portal-gov-name">Department of Labour</div>
+              <div className="portal-dept-name">Shop Establishment Portal</div>
             </div>
           </div>
           <div className="portal-header-right">
-            <span className="portal-user">👤 Inspector Priya M. | Shop Est. Dept.</span>
+            <span className="portal-user">INSPECTOR VIVEK S. | LABOUR DEPT</span>
             <div className="portal-nav-links">
-              <Link to="/portal/sws" className="portal-nav-link">🏛️ SWS Portal</Link>
-              <Link to="/portal/factories" className="portal-nav-link">🏭 Factories Portal</Link>
-              <Link to="/" className="portal-nav-link portal-nav-link-dashboard">📊 SyncKar Dashboard</Link>
+              <Link to="/portal/sws" className="portal-nav-link">SWS</Link>
+              <Link to="/portal/factories" className="portal-nav-link">FACTORIES</Link>
+              <Link to="/" className="portal-nav-link portal-nav-link-dashboard">DASHBOARD</Link>
             </div>
           </div>
         </div>
         <div className="portal-breadcrumb">
-          Home &rsaquo; Establishment Records &rsaquo; Update Record
+          HOME &rsaquo; ESTABLISHMENTS &rsaquo; UPDATE RECORD
         </div>
       </header>
 
@@ -103,15 +105,15 @@ export default function PortalShop() {
 
       <main className="portal-main">
         <div className="portal-page-title shop-title">
-          <h1>Update Establishment Record</h1>
-          <p>Modify shop establishment details. Note: Address changes made here may conflict with SWS records — SyncKar will apply the <strong>SWS_WINS</strong> policy for address fields.</p>
+          <h1>Shop / Establishment Record</h1>
+          <p>MUTATIONS ARE AUTOMATICALLY PROPAGATED VIA SYNCKAR EVENT BUS.</p>
         </div>
 
         <div className="portal-layout">
           <div className="portal-form-section">
             <div className="portal-card">
               <div className="portal-card-header shop-header">
-                <span>📋 Establishment Record — Shop Est. Dept.</span>
+                <span>ENTITY DETAILS &mdash; SHOP</span>
                 <select
                   className="portal-ubid-select"
                   value={selectedUbid}
@@ -122,41 +124,40 @@ export default function PortalShop() {
               </div>
 
               {loading ? (
-                <div className="portal-loading"><div className="portal-spinner shop-spinner" />Loading record…</div>
+                <div className="portal-loading">
+                  <div className="portal-spinner shop-spinner" />
+                  FETCHING RECORD...
+                </div>
               ) : !record ? (
-                <div className="portal-empty">Record not found for {selectedUbid} in Shop Establishment</div>
+                <div className="portal-empty">ENTITY {selectedUbid} NOT FOUND</div>
               ) : (
                 <form onSubmit={handleSubmit} className="portal-form">
                   <div className="portal-form-row">
                     <div className="portal-field">
-                      <label>UBID</label>
+                      <label>TARGET ID (UBID)</label>
                       <input type="text" value={selectedUbid} disabled className="portal-input portal-input-disabled" />
                     </div>
                     <div className="portal-field">
-                      <label>Shop Reg. No.</label>
-                      <input type="text" value={record.shop_reg_no || ''} disabled className="portal-input portal-input-disabled" />
+                      <label>ENTITY NAME (READ-ONLY)</label>
+                      <input type="text" value={record.business_name || ''} disabled className="portal-input portal-input-disabled" />
+                      <span className="portal-hint">CONTROLLED BY SWS</span>
                     </div>
                   </div>
 
                   <div className="portal-field">
-                    <label>Business Name</label>
-                    <input type="text" value={record.business_name || ''} disabled className="portal-input portal-input-disabled" />
-                  </div>
-
-                  <div className="portal-field">
-                    <label>Business Address (Buss_Addr_Line1) <span className="portal-required">*</span></label>
+                    <label>BUSINESS ADDRESS <span className="portal-required">*</span></label>
                     <input
                       type="text"
                       className="portal-input"
                       value={form.Buss_Addr_Line1}
                       onChange={e => setForm(f => ({ ...f, Buss_Addr_Line1: e.target.value }))}
                     />
-                    <span className="portal-hint">⚠️ If SWS has a different address, SWS_WINS policy will override this value</span>
+                    <span className="portal-hint">NOTE: SWS IS AUTHORITATIVE. OVERWRITES MAY BE REVERTED ON CONFLICT.</span>
                   </div>
 
                   <div className="portal-form-row">
                     <div className="portal-field">
-                      <label>Auth. Signatory (Auth_Sign_Name)</label>
+                      <label>AUTHORIZED SIGNATORY</label>
                       <input
                         type="text"
                         className="portal-input"
@@ -165,7 +166,7 @@ export default function PortalShop() {
                       />
                     </div>
                     <div className="portal-field">
-                      <label>Contact Phone</label>
+                      <label>CONTACT PHONE</label>
                       <input
                         type="text"
                         className="portal-input"
@@ -175,9 +176,11 @@ export default function PortalShop() {
                     </div>
                   </div>
 
+                  <div className="portal-section-label">LABOUR COMPLIANCE</div>
+                  
                   <div className="portal-form-row">
                     <div className="portal-field">
-                      <label>Employee Count (Emp_Count)</label>
+                      <label>EMPLOYEE COUNT</label>
                       <input
                         type="number"
                         className="portal-input"
@@ -187,37 +190,36 @@ export default function PortalShop() {
                       />
                     </div>
                     <div className="portal-field">
-                      <label>Operational Status (Op_Status)</label>
+                      <label>OPERATIONAL STATUS</label>
                       <select
                         className="portal-input"
                         value={form.Op_Status}
                         onChange={e => setForm(f => ({ ...f, Op_Status: e.target.value }))}
                       >
-                        <option value="active">Active</option>
-                        <option value="inactive">Inactive</option>
-                        <option value="suspended">Suspended</option>
+                        <option value="active">ACTIVE</option>
+                        <option value="inactive">INACTIVE</option>
+                        <option value="suspended">SUSPENDED</option>
                       </select>
                     </div>
                     <div className="portal-field">
-                      <label>License Status (Lic_Status)</label>
-                      <select
-                        className="portal-input"
-                        value={form.Lic_Status}
-                        onChange={e => setForm(f => ({ ...f, Lic_Status: e.target.value }))}
-                      >
-                        <option value="valid">Valid</option>
-                        <option value="expired">Expired</option>
-                        <option value="revoked">Revoked</option>
-                      </select>
+                      <label>COMPLIANCE SCORE (0-100)</label>
+                      <input
+                        type="number"
+                        className="portal-input portal-input-compliance"
+                        value={form.Compliance_Score}
+                        onChange={e => setForm(f => ({ ...f, Compliance_Score: Number(e.target.value) }))}
+                        min={0} max={100}
+                      />
+                      <span className="portal-hint">LOCAL FIELD ONLY. DO NOT SYNC.</span>
                     </div>
                   </div>
 
                   <div className="portal-form-footer">
                     <div className="portal-sync-note shop-sync-note">
-                      🔄 SyncKar polls this system every 10 seconds. Changes will be detected and propagated to SWS automatically.
+                      SYNCKAR WILL DETECT THIS MUTATION AND PROPAGATE IT TO CONNECTED SYSTEMS.
                     </div>
                     <button type="submit" className="portal-btn portal-btn-shop" disabled={saving}>
-                      {saving ? '⏳ Submitting…' : '✅ Submit Update'}
+                      {saving ? 'EXECUTING...' : 'COMMIT UPDATE'}
                     </button>
                   </div>
                 </form>
@@ -227,24 +229,23 @@ export default function PortalShop() {
 
           <div className="portal-sidebar">
             <div className="portal-card">
-              <div className="portal-card-header shop-header">📊 Current Record State</div>
+              <div className="portal-card-header shop-header">CURRENT RECORD STATE</div>
               {record && (
                 <div className="portal-record-view">
                   {[
                     ['UBID', selectedUbid],
-                    ['Shop Reg No', record.shop_reg_no],
-                    ['Business Name', record.business_name],
+                    ['Entity', record.business_name],
                     ['Address', record.Buss_Addr_Line1],
                     ['Signatory', record.Auth_Sign_Name],
-                    ['Phone', record.Contact_Phone],
+                    ['Contact', record.Contact_Phone],
                     ['Employees', record.Emp_Count],
-                    ['Op Status', record.Op_Status],
-                    ['Lic Status', record.Lic_Status],
-                    ['Last Modified', record.last_modified?.slice(0, 19)],
+                    ['Status', record.Op_Status],
+                    ['Compliance', `${record.Compliance_Score}/100`],
+                    ['Modified', record.last_modified?.slice(0, 19)],
                   ].map(([k, v]) => (
                     <div key={k} className="portal-record-row">
                       <span className="portal-record-key">{k}</span>
-                      <span className="portal-record-val">{v ?? '—'}</span>
+                      <span className="portal-record-val">{v || '—'}</span>
                     </div>
                   ))}
                 </div>
@@ -252,9 +253,9 @@ export default function PortalShop() {
             </div>
 
             <div className="portal-card">
-              <div className="portal-card-header shop-header">📝 Recent Activity</div>
+              <div className="portal-card-header shop-header">SESSION ACTIVITY</div>
               {activity.length === 0 ? (
-                <div className="portal-empty-sm">No updates yet this session</div>
+                <div className="portal-empty-sm">NO MUTATIONS RECORDED</div>
               ) : (
                 <div className="portal-activity">
                   {activity.map((a, i) => (
@@ -272,8 +273,8 @@ export default function PortalShop() {
       </main>
 
       <footer className="portal-footer shop-footer">
-        <div>© 2024 Government of Karnataka — Department of Shop & Commercial Establishment</div>
-        <div>Powered by SyncKar Interoperability Layer | BSA 2023 Compliant</div>
+        <div>GOVERNMENT OF KARNATAKA — SHOP TERMINAL</div>
+        <div>POWERED BY SYNCKAR INTEROPERABILITY LAYER</div>
       </footer>
     </div>
   )

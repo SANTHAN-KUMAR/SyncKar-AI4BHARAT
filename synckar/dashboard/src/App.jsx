@@ -4,7 +4,7 @@ import './index.css'
 
 const API_BASE = import.meta.env.VITE_API_URL || ''
 
-// All 20 UBIDs with business names — matches the full seeded dataset
+// All 20 UBIDs with business names
 const UBID_LIST = [
   { ubid: 'KA-TEST-0001', name: 'Bengaluru Silk Weavers Pvt Ltd' },
   { ubid: 'KA-TEST-0002', name: 'Mysuru Agro Industries Ltd' },
@@ -114,32 +114,37 @@ function App() {
     return () => clearInterval(interval)
   }, [page, fetchAudit, fetchConflicts, searchUbid])
 
-  const pages = ['overview', 'mock', 'audit', 'conflicts', 'dlq', 'verify']
+  const pages = [
+    { id: 'overview', label: 'Overview' },
+    { id: 'mock', label: 'Data Flow Demo' },
+    { id: 'audit', label: 'Audit Trail' },
+    { id: 'conflicts', label: 'Conflicts' },
+    { id: 'dlq', label: 'DLQ' },
+    { id: 'verify', label: 'BSA Verify' }
+  ]
 
   return (
     <div className="app">
       <header className="header">
         <div className="header-logo">
-          <h1>⚡ SyncKar</h1>
-          <span className="badge">Data Steward Dashboard</span>
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+          </svg>
+          <h1>SyncKar</h1>
+          <span className="badge">Command Center</span>
         </div>
         <nav className="nav">
           {pages.map(p => (
             <button
-              key={p}
-              className={`nav-btn ${page === p ? 'active' : ''}`}
-              onClick={() => setPage(p)}
+              key={p.id}
+              className={`nav-btn ${page === p.id ? 'active' : ''}`}
+              onClick={() => setPage(p.id)}
             >
-              {p === 'overview' ? '📊 Overview' :
-               p === 'mock'     ? '🖥️ Mock Controls' :
-               p === 'audit'    ? '📋 Audit Trail' :
-               p === 'conflicts'? '⚔️ Conflicts' :
-               p === 'dlq'      ? '📮 DLQ' :
-                                  '🔐 BSA Verify'}
+              {p.label}
             </button>
           ))}
-          <Link to="/portal" className="nav-btn nav-btn-portals">
-            🏛️ Dept. Portals
+          <Link to="/portal" className="nav-btn-portals">
+            Portals
           </Link>
         </nav>
       </header>
@@ -201,18 +206,18 @@ function OverviewPage({ stats, health }) {
       <div className="table-container">
         <div className="table-header">
           <h2>System Health</h2>
-          <span className={health?.status === 'healthy' ? 'badge-success' : 'badge-warning'}>
-            {health?.status ?? 'unknown'}
+          <span className={health?.status === 'healthy' ? 'badge-success' : 'badge-error'}>
+            {health?.status ?? 'UNKNOWN'}
           </span>
         </div>
         <table>
           <thead>
-            <tr><th>Service</th><th>Status</th></tr>
+            <tr><th>Service Node</th><th>Status Code</th></tr>
           </thead>
           <tbody>
             {health?.checks && Object.entries(health.checks).map(([svc, status]) => (
               <tr key={svc}>
-                <td style={{ textTransform: 'capitalize' }}>{svc}</td>
+                <td style={{ textTransform: 'uppercase', fontFamily: 'var(--font-mono)' }}>{svc}</td>
                 <td>
                   <span className={status === 'healthy' ? 'badge-success' : 'badge-error'}>
                     {status}
@@ -227,15 +232,14 @@ function OverviewPage({ stats, health }) {
   )
 }
 
-// ─── Mock Systems ─────────────────────────────────────────────────────────────
+// ─── Mock Systems (Narrative View) ───────────────────────────────────────────
 
 const SYSTEM_LABELS = {
-  sws:       { label: 'SWS',              color: 'blue',   emoji: '🏛️' },
-  shop:      { label: 'Shop Est.',         color: 'green',  emoji: '🏪' },
-  factories: { label: 'Factories Dept.',   color: 'purple', emoji: '🏭' },
+  sws:       { label: 'Single Window',   icon: <rect width="18" height="18" x="3" y="3" rx="2" ry="2"/> },
+  shop:      { label: 'Shop Est.',       icon: <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/> },
+  factories: { label: 'Factories Dept.', icon: <path d="M2 20h20M4 20V4l8 6 8-6v16"/> },
 }
 
-// Fields each system exposes for editing in the UI
 const EDITABLE_FIELDS = {
   sws: [
     { key: 'registered_address', label: 'Registered Address', type: 'text' },
@@ -286,7 +290,6 @@ function MockSystemsPage() {
       if (!res.ok) throw new Error(`${res.status}`)
       const data = await res.json()
       setRecords(r => ({ ...r, [system]: data }))
-      // Pre-populate edits with current values
       const fields = EDITABLE_FIELDS[system] || []
       const initial = {}
       fields.forEach(f => { initial[f.key] = data[f.key] ?? '' })
@@ -324,20 +327,19 @@ function MockSystemsPage() {
         body: JSON.stringify(body),
       })
       if (!res.ok) throw new Error(`${res.status}`)
-      showToast(`✅ ${SYSTEM_LABELS[system].label} updated — SyncKar will propagate shortly`)
+      showToast(`${SYSTEM_LABELS[system].label} Updated — SyncKar tracking event`, 'info')
       await fetchRecord(system, selectedUbid)
     } catch (err) {
-      showToast(`❌ Failed to update ${SYSTEM_LABELS[system].label}: ${err.message}`, 'error')
+      showToast(`Update Failed ${SYSTEM_LABELS[system].label}: ${err.message}`, 'error')
     } finally {
       setSaving(s => ({ ...s, [system]: false }))
     }
   }
 
-  // ── Bug 4 fix: check response status, show error toast on 404 ──────────────
   const handleConflict = async () => {
     const swsBody = { registered_address: `${Date.now()} SWS Street, Bangalore 560001` }
     const factBody = { factory_address: `${Date.now()} Factory Lane, Bangalore 560002` }
-    showToast('⚡ Triggering simultaneous conflict update…', 'info')
+    showToast('Triggering simultaneous conflict update…', 'info')
 
     const [swsRes, factRes] = await Promise.all([
       fetch(`${API_BASE}/api/mock/sws/record/${selectedUbid}`, {
@@ -352,25 +354,24 @@ function MockSystemsPage() {
 
     if (!swsRes.ok || !factRes.ok) {
       const code = !swsRes.ok ? swsRes.status : factRes.status
-      showToast(`❌ Conflict trigger failed (${code}) — databases may be empty. Click 'Seed Data' first.`, 'error')
+      showToast(`Conflict trigger failed (${code})`, 'error')
       return
     }
 
-    showToast('⚔️ Conflict submitted — watch the Conflicts tab for SWS_WINS resolution')
+    showToast('Conflict submitted — applying SWS_WINS resolution', 'success')
     refreshAll(selectedUbid)
   }
 
-  // ── Bug 5 fix: seed, reset, and scenario handlers ─────────────────────────
   const handleSeed = async () => {
     setSeeding(true)
     try {
       const res = await fetch(`${API_BASE}/api/mock/seed`, { method: 'POST' })
       if (!res.ok) throw new Error(`${res.status}`)
       const data = await res.json()
-      showToast(`✅ Data seeded — SWS: ${data.seeded?.sws}, Shop: ${data.seeded?.shop}, Factories: ${data.seeded?.factories}`)
+      showToast(`Data seeded (SWS:${data.seeded?.sws} SHOP:${data.seeded?.shop})`, 'success')
       refreshAll(selectedUbid)
     } catch (err) {
-      showToast(`❌ Seed failed: ${err.message}`, 'error')
+      showToast(`Seed failed: ${err.message}`, 'error')
     } finally {
       setSeeding(false)
     }
@@ -382,177 +383,191 @@ function MockSystemsPage() {
       const res = await fetch(`${API_BASE}/api/mock/reset`, { method: 'POST' })
       if (!res.ok) throw new Error(`${res.status}`)
       const data = await res.json()
-      showToast(`✅ Reset & reseeded — SWS: ${data.seeded?.sws}, Shop: ${data.seeded?.shop}, Factories: ${data.seeded?.factories}`)
+      showToast(`Database Reset`, 'success')
       refreshAll(selectedUbid)
     } catch (err) {
-      showToast(`❌ Reset failed: ${err.message}`, 'error')
+      showToast(`Reset failed: ${err.message}`, 'error')
     } finally {
       setSeeding(false)
     }
   }
 
   const handleScenarioA = async () => {
-    // Scenario A: SWS → Dept — update address in SWS, SyncKar propagates to Shop + Factories
     const body = { registered_address: `${Date.now()} Scenario-A Street, Bengaluru 560001` }
-    showToast('📤 Scenario A: updating SWS address…', 'info')
+    showToast('Scenario A: updating SWS...', 'info')
     try {
       const res = await fetch(`${API_BASE}/api/mock/sws/record/${selectedUbid}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       })
       if (!res.ok) throw new Error(`${res.status} — seed data first`)
-      showToast('📤 Scenario A triggered — SWS address updated, SyncKar propagating to departments…')
+      showToast('Scenario A triggered — SWS updated', 'success')
       fetchRecord('sws', selectedUbid)
     } catch (err) {
-      showToast(`❌ Scenario A failed: ${err.message}`, 'error')
+      showToast(`Scenario A failed: ${err.message}`, 'error')
     }
   }
 
   const handleScenarioB = async () => {
-    // Scenario B: Dept → SWS — update address in Shop, SyncKar propagates back to SWS
     const body = { Buss_Addr_Line1: `${Date.now()} Scenario-B Road, Bengaluru 560002` }
-    showToast('📥 Scenario B: updating Shop address…', 'info')
+    showToast('Scenario B: updating Shop...', 'info')
     try {
       const res = await fetch(`${API_BASE}/api/mock/shop/record/${selectedUbid}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       })
       if (!res.ok) throw new Error(`${res.status} — seed data first`)
-      showToast('📥 Scenario B triggered — Shop address updated, SyncKar propagating to SWS…')
+      showToast('Scenario B triggered — Shop updated', 'success')
       fetchRecord('shop', selectedUbid)
     } catch (err) {
-      showToast(`❌ Scenario B failed: ${err.message}`, 'error')
+      showToast(`Scenario B failed: ${err.message}`, 'error')
     }
   }
 
-  const handleScenarioC = () => handleConflict()
+  const renderPanel = (system, customClass) => {
+    const { label, icon } = SYSTEM_LABELS[system]
+    const record = records[system]
+    const fields = EDITABLE_FIELDS[system] || []
+    const isLoading = loading[system]
+    const isSaving = saving[system]
+    const edit = edits[system] || {}
+
+    return (
+      <div className={`mock-panel ${customClass}`}>
+        <div className="mock-panel-header">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              {icon}
+            </svg>
+            <span className="mock-panel-title">{label}</span>
+          </div>
+          <span className="badge-info">{selectedUbid}</span>
+        </div>
+
+        {isLoading ? (
+          <div className="mock-loading">Loading Object...</div>
+        ) : !record ? (
+          <div className="mock-empty">No Entity</div>
+        ) : (
+          <>
+            <div className="mock-readonly">
+              <div className="mock-field-row">
+                <span className="mock-field-label">Entity Name</span>
+                <span className="mock-field-value">{record.business_name}</span>
+              </div>
+            </div>
+
+            <div className="mock-fields">
+              {fields.map(f => (
+                <div key={f.key} className="mock-field-row">
+                  <label className="mock-field-label">{f.label}</label>
+                  {f.type === 'select' ? (
+                    <select
+                      className="mock-input"
+                      value={edit[f.key] ?? ''}
+                      onChange={e => handleEdit(system, f.key, e.target.value)}
+                    >
+                      {f.options.map(o => <option key={o} value={o}>{o.toUpperCase()}</option>)}
+                    </select>
+                  ) : (
+                    <input
+                      className="mock-input"
+                      type={f.type}
+                      value={edit[f.key] ?? ''}
+                      onChange={e => handleEdit(system, f.key,
+                        f.type === 'number' ? Number(e.target.value) : e.target.value)}
+                    />
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <div className="mock-panel-footer">
+              <span className="mock-modified animate-update" key={record.last_modified}>
+                {record.last_modified?.slice(11, 19) ?? '--:--:--'}
+              </span>
+              <button
+                className={`btn btn-primary btn-sm ${isSaving ? 'btn-saving' : ''}`}
+                onClick={() => handleSave(system)}
+                disabled={isSaving}
+              >
+                {isSaving ? 'EXECUTING' : `WRITE TO ${system.toUpperCase()}`}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    )
+  }
 
   return (
     <div>
-      {/* Toast */}
       {toast && (
         <div className={`toast toast-${toast.type}`}>{toast.msg}</div>
       )}
 
-      {/* Controls */}
       <div className="mock-controls">
         <div className="mock-controls-left">
-          <label className="mock-label">Business (UBID)</label>
-          {/* Bug 3 fix: all 20 UBIDs with business names */}
+          <span className="mock-label">Target ID</span>
           <select
             className="mock-select"
             value={selectedUbid}
             onChange={e => setSelectedUbid(e.target.value)}
           >
             {UBID_LIST.map(u => (
-              <option key={u.ubid} value={u.ubid}>{u.ubid} — {u.name}</option>
+              <option key={u.ubid} value={u.ubid}>{u.ubid} | {u.name}</option>
             ))}
           </select>
         </div>
         <div className="mock-controls-right">
-          {/* Bug 5 fix: seed + reset buttons */}
           <button className="btn btn-seed" onClick={handleSeed} disabled={seeding}>
-            {seeding ? 'Seeding…' : '🌱 Seed Data'}
+            [SEED DB]
           </button>
           <button className="btn btn-reset" onClick={handleReset} disabled={seeding}>
-            {seeding ? 'Resetting…' : '🔄 Reset & Reseed'}
+            [RESET]
           </button>
-          {/* Bug 5 fix: scenario buttons */}
           <button className="btn btn-scenario-a" onClick={handleScenarioA}>
-            📤 Scenario A: SWS→Dept
+            RUN A: SWS &rarr; DEPT
           </button>
           <button className="btn btn-scenario-b" onClick={handleScenarioB}>
-            📥 Scenario B: Dept→SWS
+            RUN B: DEPT &rarr; SWS
           </button>
-          <button className="btn btn-conflict" onClick={handleScenarioC}>
-            ⚔️ Scenario C: Conflict
+          <button className="btn btn-conflict" onClick={handleConflict}>
+            TRIGGER CONFLICT
           </button>
         </div>
       </div>
+      
       <div className="mock-hint-row">
-        <span className="mock-hint">Scenario A: SWS address → propagates to Shop &amp; Factories</span>
-        <span className="mock-hint">Scenario B: Shop address → propagates back to SWS</span>
-        <span className="mock-hint">Scenario C: simultaneous SWS + Factories update → SWS_WINS conflict</span>
+        <span className="mock-hint">Event A: SWS updates, propagates to Shop & Factories</span>
+        <span className="mock-hint">Event B: Shop updates, propagates to SWS</span>
+        <span className="mock-hint">Event C: Conflict via simultaneous edits</span>
       </div>
 
-      {/* Three system panels */}
-      <div className="mock-grid">
-        {['sws', 'shop', 'factories'].map(system => {
-          const { label, color, emoji } = SYSTEM_LABELS[system]
-          const record = records[system]
-          const fields = EDITABLE_FIELDS[system] || []
-          const isLoading = loading[system]
-          const isSaving = saving[system]
-          const edit = edits[system] || {}
+      <div className="architecture-container">
+        {/* Source Side */}
+        <div className="architecture-side">
+          {renderPanel('sws', 'mock-panel-sws')}
+        </div>
+        
+        {/* SyncKar Middle Layer Indicator */}
+        <div className="architecture-center">
+          <div>DATA BUS</div>
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--text-secondary)" strokeWidth="2">
+            <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+          </svg>
+          <div style={{ marginTop: 8 }}>SYNCKAR</div>
+        </div>
 
-          return (
-            <div key={system} className={`mock-panel mock-panel-${color}`}>
-              <div className="mock-panel-header">
-                <span className="mock-panel-title">{emoji} {label}</span>
-                <span className="badge-info" style={{ fontSize: 10 }}>
-                  {selectedUbid}
-                </span>
-              </div>
-
-              {isLoading ? (
-                <div className="mock-loading">Loading…</div>
-              ) : !record ? (
-                <div className="mock-empty">Record not found in {label}</div>
-              ) : (
-                <>
-                  <div className="mock-readonly">
-                    <div className="mock-field-row">
-                      <span className="mock-field-label">Business Name</span>
-                      <span className="mock-field-value">{record.business_name}</span>
-                    </div>
-                  </div>
-
-                  <div className="mock-fields">
-                    {fields.map(f => (
-                      <div key={f.key} className="mock-field-row">
-                        <label className="mock-field-label">{f.label}</label>
-                        {f.type === 'select' ? (
-                          <select
-                            className="mock-input"
-                            value={edit[f.key] ?? ''}
-                            onChange={e => handleEdit(system, f.key, e.target.value)}
-                          >
-                            {f.options.map(o => <option key={o} value={o}>{o}</option>)}
-                          </select>
-                        ) : (
-                          <input
-                            className="mock-input"
-                            type={f.type}
-                            value={edit[f.key] ?? ''}
-                            onChange={e => handleEdit(system, f.key,
-                              f.type === 'number' ? Number(e.target.value) : e.target.value)}
-                          />
-                        )}
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="mock-panel-footer">
-                    <span className="mock-modified">
-                      Last modified: {record.last_modified?.slice(0, 19) ?? '—'}
-                    </span>
-                    <button
-                      className={`btn btn-primary btn-sm ${isSaving ? 'btn-saving' : ''}`}
-                      onClick={() => handleSave(system)}
-                      disabled={isSaving}
-                    >
-                      {isSaving ? 'Saving…' : `Update ${label}`}
-                    </button>
-                  </div>
-                </>
-              )}
-            </div>
-          )
-        })}
+        {/* Target Side */}
+        <div className="architecture-side">
+          {renderPanel('shop', 'mock-panel-dept')}
+          {renderPanel('factories', 'mock-panel-dept')}
+        </div>
       </div>
 
       <div className="mock-tip">
-        💡 After updating a field, switch to <strong>Overview</strong> or <strong>Audit Trail</strong> to watch SyncKar propagate the change in real time (auto-refreshes every 3–4s).
+        <strong>NOTE:</strong> Monitor the <em>Audit Trail</em> or <em>Conflicts</em> tab to view raw system ledger entries generated by SyncKar after a mutation.
       </div>
     </div>
   )
@@ -564,53 +579,55 @@ function AuditPage({ audit, searchUbid, onSearch, onFetch }) {
   return (
     <div className="table-container">
       <div className="table-header">
-        <h2>Audit Trail ({audit.length} entries)</h2>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <h2>Ledger ({audit.length})</h2>
+        <div style={{ display: 'flex', gap: 16 }}>
           <input
             className="search-input"
-            placeholder="Search by UBID (e.g. KA-TEST-0001)"
+            placeholder="[UBID] e.g. KA-TEST-0001"
             value={searchUbid}
             onChange={e => onSearch(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && onFetch()}
           />
-          <button className="btn btn-primary" onClick={onFetch}>Search</button>
+          <button className="btn btn-primary" onClick={onFetch}>Query</button>
         </div>
       </div>
       <table>
         <thead>
           <tr>
-            <th>Time</th>
-            <th>UBID</th>
-            <th>Field</th>
-            <th>Source → Target</th>
-            <th>New Value</th>
-            <th>Conflict</th>
+            <th>Timestamp</th>
+            <th>Target ID</th>
+            <th>Property</th>
+            <th>Vector</th>
+            <th>Payload</th>
+            <th>Status</th>
           </tr>
         </thead>
         <tbody>
           {audit.map((row, i) => (
             <tr key={i}>
-              <td style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+              <td style={{ fontSize: 10, fontFamily: 'var(--font-mono)' }}>
                 {row.created_at?.slice(0, 19)}
               </td>
               <td><span className="badge-info">{row.ubid}</span></td>
               <td>{row.field_modified}</td>
-              <td>{row.source_system} → {row.target_system}</td>
-              <td style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              <td style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>
+                {row.source_system} &rarr; {row.target_system}
+              </td>
+              <td style={{ maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', fontFamily: 'var(--font-mono)', fontSize: 11 }}>
                 {row.new_value?.slice(0, 40)}
               </td>
               <td>
                 {row.conflict_detected ? (
-                  <span className="badge-warning">{row.resolution_policy || 'YES'}</span>
+                  <span className="badge-warning">{row.resolution_policy || 'CONFLICT'}</span>
                 ) : (
-                  <span className="badge-success">No</span>
+                  <span className="badge-success">OK</span>
                 )}
               </td>
             </tr>
           ))}
           {audit.length === 0 && (
-            <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: 32 }}>
-              No audit entries. Use Mock Systems tab to trigger changes.
+            <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: 48, fontFamily: 'var(--font-mono)' }}>
+              Awaiting Events.
             </td></tr>
           )}
         </tbody>
@@ -625,30 +642,30 @@ function ConflictsPage({ conflicts, onRefresh }) {
   return (
     <div className="table-container">
       <div className="table-header">
-        <h2>⚔️ Conflict Log ({conflicts.length} records)</h2>
-        <button className="btn btn-primary btn-sm" onClick={onRefresh}>Refresh</button>
+        <h2>Conflict Log ({conflicts.length})</h2>
+        <button className="btn btn-primary btn-sm" onClick={onRefresh}>Sync</button>
       </div>
       <table>
         <thead>
           <tr>
-            <th>Time</th>
-            <th>UBID</th>
-            <th>Field</th>
-            <th>Policy</th>
-            <th>Winner ✅</th>
-            <th>Loser (preserved) ❌</th>
-            <th>Confidence</th>
+            <th>Timestamp</th>
+            <th>Target ID</th>
+            <th>Property</th>
+            <th>Rule</th>
+            <th>Accepted Vector</th>
+            <th>Rejected Vector</th>
+            <th>Conf</th>
           </tr>
         </thead>
         <tbody>
           {conflicts.map((c, i) => (
             <tr key={i}>
-              <td style={{ fontSize: 11, color: 'var(--text-muted)' }}>{c.created_at?.slice(0, 19)}</td>
+              <td style={{ fontSize: 10, fontFamily: 'var(--font-mono)' }}>{c.created_at?.slice(0, 19)}</td>
               <td><span className="badge-info">{c.ubid}</span></td>
               <td>{c.field}</td>
               <td><span className="badge-warning">{c.policy_applied}</span></td>
-              <td style={{ color: 'var(--accent-green)' }}>{c.winning_value?.slice(0, 30)}</td>
-              <td style={{ color: 'var(--accent-red)' }}>{c.losing_value?.slice(0, 30)}</td>
+              <td style={{ color: 'var(--accent-green)', fontFamily: 'var(--font-mono)', fontSize: 11 }}>{c.winning_value?.slice(0, 30)}</td>
+              <td style={{ color: 'var(--text-secondary)', textDecoration: 'line-through', fontFamily: 'var(--font-mono)', fontSize: 11 }}>{c.losing_value?.slice(0, 30)}</td>
               <td>
                 <span className={
                   c.temporal_confidence === 'HIGH' ? 'badge-success' :
@@ -660,8 +677,8 @@ function ConflictsPage({ conflicts, onRefresh }) {
             </tr>
           ))}
           {conflicts.length === 0 && (
-            <tr><td colSpan={7} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: 32 }}>
-              No conflicts. Use "Trigger Simultaneous Conflict" in Mock Systems tab.
+            <tr><td colSpan={7} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: 48, fontFamily: 'var(--font-mono)' }}>
+              No recorded conflicts.
             </td></tr>
           )}
         </tbody>
@@ -676,29 +693,29 @@ function DLQPage({ dlq }) {
   return (
     <div className="table-container">
       <div className="table-header">
-        <h2>📮 Dead Letter Queue ({dlq.length} pending)</h2>
+        <h2>Dead Letter Queue ({dlq.length})</h2>
       </div>
       <table>
         <thead>
           <tr>
-            <th>Time</th><th>UBID</th><th>Source</th>
-            <th>Error Reason</th><th>Status</th><th>Action</th>
+            <th>Timestamp</th><th>Target ID</th><th>Origin</th>
+            <th>Exception</th><th>State</th><th>Action</th>
           </tr>
         </thead>
         <tbody>
           {dlq.map((item, i) => (
             <tr key={i}>
-              <td style={{ fontSize: 11, color: 'var(--text-muted)' }}>{item.created_at?.slice(0, 19)}</td>
+              <td style={{ fontSize: 10, fontFamily: 'var(--font-mono)' }}>{item.created_at?.slice(0, 19)}</td>
               <td><span className="badge-info">{item.ubid}</span></td>
               <td>{item.source_system}</td>
-              <td style={{ maxWidth: 250, overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.error_reason}</td>
+              <td style={{ maxWidth: 250, overflow: 'hidden', textOverflow: 'ellipsis', fontFamily: 'var(--font-mono)', fontSize: 11 }}>{item.error_reason}</td>
               <td><span className="badge-error">{item.status}</span></td>
-              <td><button className="btn btn-primary btn-sm">Resolve</button></td>
+              <td><button className="btn btn-primary btn-sm">RETRY</button></td>
             </tr>
           ))}
           {dlq.length === 0 && (
-            <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: 32 }}>
-              DLQ is empty. All events processed successfully. ✅
+            <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: 48, fontFamily: 'var(--font-mono)' }}>
+              Queue Empty.
             </td></tr>
           )}
         </tbody>
@@ -710,31 +727,31 @@ function DLQPage({ dlq }) {
 // ─── Verify ───────────────────────────────────────────────────────────────────
 
 function VerifyPage({ audit, verifyResult, onVerify, onFetchAudit }) {
-  useEffect(() => { onFetchAudit() }, [])
+  useEffect(() => { onFetchAudit() }, [onFetchAudit])
 
   return (
     <div>
       <div className="table-container">
         <div className="table-header">
-          <h2>🔐 BSA 2023 Signature Verification</h2>
+          <h2>BSA 2023 Verification</h2>
         </div>
         <table>
           <thead>
             <tr>
-              <th>Audit ID</th><th>UBID</th><th>Field</th>
-              <th>Source → Target</th><th>Action</th>
+              <th>Trace ID</th><th>Target ID</th><th>Property</th>
+              <th>Vector</th><th>Action</th>
             </tr>
           </thead>
           <tbody>
             {audit.slice(0, 10).map((row, i) => (
               <tr key={i}>
-                <td style={{ fontSize: 11, fontFamily: 'monospace' }}>{row.audit_id?.slice(0, 8)}…</td>
+                <td style={{ fontSize: 11, fontFamily: 'var(--font-mono)' }}>{row.audit_id?.slice(0, 8)}…</td>
                 <td><span className="badge-info">{row.ubid}</span></td>
                 <td>{row.field_modified}</td>
-                <td>{row.source_system} → {row.target_system}</td>
+                <td style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>{row.source_system} &rarr; {row.target_system}</td>
                 <td>
                   <button className="btn btn-primary btn-sm" onClick={() => onVerify(row.audit_id)}>
-                    Verify Signature
+                    VALIDATE
                   </button>
                 </td>
               </tr>
@@ -745,26 +762,35 @@ function VerifyPage({ audit, verifyResult, onVerify, onFetchAudit }) {
 
       {verifyResult && (
         <div className="verify-card">
-          <h3 style={{ marginBottom: 12 }}>Verification Result</h3>
+          <h3 style={{ marginBottom: 24, fontFamily: 'var(--font-display)', textTransform: 'uppercase' }}>Integrity Check</h3>
           <div className={`verify-result ${verifyResult.signature_valid ? 'valid' : 'invalid'}`}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
-              <span style={{ fontSize: 32 }}>
-                {verifyResult.signature_valid ? '✅' : '❌'}
-              </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 24, marginBottom: 16 }}>
+              {verifyResult.signature_valid ? (
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--accent-green)" strokeWidth="2">
+                  <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+                  <polyline points="22 4 12 14.01 9 11.01"></polyline>
+                </svg>
+              ) : (
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--accent-red)" strokeWidth="2">
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <line x1="15" y1="9" x2="9" y2="15"></line>
+                  <line x1="9" y1="9" x2="15" y2="15"></line>
+                </svg>
+              )}
               <div>
-                <div style={{ fontSize: 18, fontWeight: 700 }}>
-                  {verifyResult.signature_valid ? 'Signature Valid' : 'Signature Invalid — TAMPERED'}
+                <div style={{ fontSize: 20, fontFamily: 'var(--font-display)', fontWeight: 700, color: verifyResult.signature_valid ? 'var(--accent-green)' : 'var(--accent-red)' }}>
+                  {verifyResult.signature_valid ? 'SIGNATURE VALID' : 'TAMPER DETECTED'}
                 </div>
-                <div style={{ color: 'var(--text-secondary)', fontSize: 13 }}>
-                  BSA 2023 Compliance: {verifyResult.bsa_2023_compliant ? 'PASSED' : 'FAILED'}
+                <div style={{ color: 'var(--text-secondary)', fontSize: 13, fontFamily: 'var(--font-mono)' }}>
+                  BSA_2023_COMPLIANT: {verifyResult.bsa_2023_compliant ? 'TRUE' : 'FALSE'}
                 </div>
               </div>
             </div>
-            <div style={{ fontSize: 12, color: 'var(--text-secondary)', fontFamily: 'monospace' }}>
-              <div>Audit ID: {verifyResult.audit_id}</div>
-              <div>SHA-256: {verifyResult.payload_sha256?.slice(0, 32)}…</div>
-              <div>UBID: {verifyResult.verification_details?.ubid}</div>
-              <div>Field: {verifyResult.verification_details?.field}</div>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', borderTop: '1px solid var(--border)', paddingTop: 16, display: 'grid', gap: 8 }}>
+              <div>AUDIT_ID: {verifyResult.audit_id}</div>
+              <div>SHA256_HASH: {verifyResult.payload_sha256}</div>
+              <div>TARGET_ID: {verifyResult.verification_details?.ubid}</div>
+              <div>PROPERTY: {verifyResult.verification_details?.field}</div>
             </div>
           </div>
         </div>
