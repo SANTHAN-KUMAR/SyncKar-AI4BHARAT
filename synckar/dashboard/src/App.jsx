@@ -28,6 +28,16 @@ const UBID_LIST = [
   { ubid: 'KA-TEST-0020', name: 'Karnataka Organic Farms Ltd' },
 ]
 
+// UI Helper for terminology
+const formatPolicy = (policy) => {
+  if (!policy) return 'Conflict Detected';
+  if (policy === 'SWS_WINS') return 'Prioritized SWS Rules';
+  if (policy === 'LAST_WRITE_WINS') return 'Latest Update Priority';
+  if (policy === 'DLQ_PERMANENT_FAILURE') return 'Failed Permanently';
+  if (policy === 'NO_OP') return 'No Changes Detected';
+  return policy;
+};
+
 function App() {
   const [page, setPage] = useState('overview')
   const [stats, setStats] = useState(null)
@@ -212,6 +222,16 @@ function OverviewPage({ stats, health }) {
           When identical records were updated simultaneously in different systems, SyncKar detected <strong>{stats?.conflicts_detected || 0} conflicts</strong> and resolved them automatically using the predefined authoritative source rules (e.g., SWS is authoritative for demographic data). 
           Currently, there are <strong>{stats?.outbox_pending || 0} events</strong> waiting in the Kafka stream to be processed.
         </p>
+      </div>
+
+      <div className="card" style={{ marginBottom: '32px', padding: '24px' }}>
+        <h3 style={{ marginTop: 0, color: 'var(--gov-blue)', fontSize: '18px' }}>Terminology Glossary</h3>
+        <ul style={{ margin: '8px 0', lineHeight: 1.6, color: 'var(--text-secondary)', paddingLeft: '20px' }}>
+          <li><strong>Successfully Synced:</strong> Data was smoothly propagated from the source portal to the target system.</li>
+          <li><strong>Prioritized SWS Rules:</strong> A conflict occurred (e.g. two portals updated the same address simultaneously), but the Single Window System is designated as the master authority for that field, so its value was enforced.</li>
+          <li><strong>Latest Update Priority:</strong> A conflict occurred, and since neither system had absolute authority, the most recent timestamped change was applied.</li>
+          <li><strong>Failed Permanently (DLQ):</strong> An event failed to sync multiple times and was placed in the Dead Letter Queue for manual review.</li>
+        </ul>
       </div>
 
       <div className="table-container">
@@ -405,8 +425,8 @@ function LiveDemoConsole({ API_BASE }) {
         </div>
         <div style={{ padding: '0 24px 16px 24px', fontSize: '13px', color: 'var(--text-secondary)', display: 'flex', gap: '16px' }}>
           <strong>Legend:</strong>
-          <span><span className="badge badge-success" style={{ fontSize: '10px', padding: '2px 6px' }}>SYNCED</span> : Successfully propagated to target</span>
-          <span><span className="badge badge-warning" style={{ fontSize: '10px', padding: '2px 6px' }}>SWS_WINS</span> : Conflict resolved. SWS was kept as the authoritative source</span>
+          <span><span className="badge badge-success" style={{ fontSize: '10px', padding: '2px 6px' }}>Successfully Synced</span> : Propagated to target</span>
+          <span><span className="badge badge-warning" style={{ fontSize: '10px', padding: '2px 6px' }}>Prioritized SWS Rules</span> : Conflict resolved using SWS</span>
         </div>
         <table>
           <thead>
@@ -433,9 +453,9 @@ function LiveDemoConsole({ API_BASE }) {
                 </td>
                 <td>
                   {row.conflict_detected ? (
-                    <span className="badge badge-warning" style={{ fontSize: '10px' }}>{row.resolution_policy || 'CONFLICT'}</span>
+                    <span className="badge badge-warning" style={{ fontSize: '10px' }}>{formatPolicy(row.resolution_policy)}</span>
                   ) : (
-                    <span className="badge badge-success" style={{ fontSize: '10px' }}>SYNCED</span>
+                    <span className="badge badge-success" style={{ fontSize: '10px' }}>Successfully Synced</span>
                   )}
                 </td>
               </tr>
@@ -500,9 +520,9 @@ function AuditPage({ audit, searchUbid, onSearch, onFetch }) {
                 </td>
                 <td>
                   {row.conflict_detected ? (
-                    <span className="badge badge-warning">{row.resolution_policy || 'CONFLICT'}</span>
+                    <span className="badge badge-warning">{formatPolicy(row.resolution_policy)}</span>
                   ) : (
-                    <span className="badge badge-success">SYNCED</span>
+                    <span className="badge badge-success">Successfully Synced</span>
                   )}
                 </td>
               </tr>
@@ -550,7 +570,7 @@ function ConflictsPage({ conflicts, onRefresh }) {
                 <td className="mono">{c.created_at?.slice(0, 19).replace('T', ' ')}</td>
                 <td><span className="badge badge-neutral">{c.ubid}</span></td>
                 <td>{c.field}</td>
-                <td><span className="badge badge-warning">{c.policy_applied}</span></td>
+                <td><span className="badge badge-warning">{formatPolicy(c.policy_applied)}</span></td>
                 <td className="mono text-sm" style={{ color: 'var(--status-success)' }}>{c.winning_value?.slice(0, 40)}</td>
                 <td className="mono text-sm" style={{ color: 'var(--text-muted)', textDecoration: 'line-through' }}>{c.losing_value?.slice(0, 40)}</td>
               </tr>

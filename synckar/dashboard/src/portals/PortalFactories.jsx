@@ -1,7 +1,7 @@
 /**
  * Mock Factories Department Portal
  */
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import './portal.css'
 
@@ -16,6 +16,8 @@ export default function PortalFactories() {
   const [form, setForm] = useState({})
   const [toast, setToast] = useState(null)
   const [activity, setActivity] = useState([])
+  const [inboundBanner, setInboundBanner] = useState(null)
+  const lastModifiedRef = useRef(null)
 
   const showToast = (msg, type = 'success') => {
     setToast({ msg, type })
@@ -29,6 +31,7 @@ export default function PortalFactories() {
       if (!res.ok) throw new Error('Not found')
       const data = await res.json()
       setRecord(data)
+      lastModifiedRef.current = data.last_modified
       setForm({
         factory_address: data.factory_address || '',
         signatory_name: data.signatory_name || '',
@@ -44,7 +47,28 @@ export default function PortalFactories() {
     }
   }, [])
 
+  // Silent background refresh — picks up inbound SyncKar writes
+  const silentRefresh = useCallback(async (ubid) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/mock/factories/record/${ubid}`)
+      if (!res.ok) return
+      const data = await res.json()
+      if (lastModifiedRef.current && data.last_modified !== lastModifiedRef.current) {
+        setRecord(data)
+        setInboundBanner('⟳ Record updated by SyncKar from another system')
+        setTimeout(() => setInboundBanner(null), 5000)
+      }
+      lastModifiedRef.current = data.last_modified
+    } catch { /* silent */ }
+  }, [])
+
   useEffect(() => { fetchRecord(selectedUbid) }, [selectedUbid, fetchRecord])
+
+  // Poll every 5s to catch inbound SyncKar propagations
+  useEffect(() => {
+    const id = setInterval(() => silentRefresh(selectedUbid), 5000)
+    return () => clearInterval(id)
+  }, [selectedUbid, silentRefresh])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -123,6 +147,11 @@ export default function PortalFactories() {
       </header>
 
       {toast && <div className={`portal-toast portal-toast-${toast.type}`}>{toast.msg}</div>}
+      {inboundBanner && (
+        <div className="portal-toast portal-toast-info" style={{ background: '#dbeafe', color: '#1d4ed8', borderColor: '#93c5fd' }}>
+          {inboundBanner}
+        </div>
+      )}
 
       <main className="portal-main">
         <div className="portal-page-title">
