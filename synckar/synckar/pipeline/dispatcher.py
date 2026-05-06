@@ -121,6 +121,15 @@ def _get_circuit_breaker(adapter_id: str) -> CircuitBreaker:
     return _circuit_breakers[adapter_id]
 
 
+def _is_stale_event(event: CanonicalServiceRequest) -> bool:
+    """Drop events that were generated before a hard reset but are still in Kafka."""
+    r = _get_redis()
+    reset_iso = r.get("hard_reset_timestamp")
+    if reset_iso and event.received_at.isoformat() < reset_iso:
+        return True
+    return False
+
+
 def dispatch_sws_to_departments(event: CanonicalServiceRequest) -> dict:
     """
     Fan-out an SWS change to all relevant department adapters.
@@ -132,6 +141,10 @@ def dispatch_sws_to_departments(event: CanonicalServiceRequest) -> dict:
     can apply exponential-backoff retry.  All other per-adapter errors are caught
     and recorded so one adapter never blocks another (C9).
     """
+    if _is_stale_event(event):
+        logger.info("stale_event_dropped_sws_to_dept", ubid=event.ubid, received_at=event.received_at.isoformat())
+        return {"status": "dropped", "reason": "hard_reset"}
+
     results = {}
 
     retriable_errors: list[Exception] = []
@@ -182,6 +195,10 @@ def dispatch_department_to_sws(event: CanonicalServiceRequest) -> dict:
     Propagate a department change to SWS.
     Re-raises TargetWriteError / IdempotencyKeyInProgress for Celery retry.
     """
+    if _is_stale_event(event):
+        logger.info("stale_event_dropped_dept_to_sws", ubid=event.ubid, received_at=event.received_at.isoformat())
+        return {"status": "dropped", "reason": "hard_reset"}
+
     results = {}
     try:
         results["sws"] = _propagate_to_adapter(

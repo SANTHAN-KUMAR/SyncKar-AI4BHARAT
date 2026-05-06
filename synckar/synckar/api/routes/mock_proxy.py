@@ -280,11 +280,11 @@ async def hard_reset_all():
     try:
         import redis
         import time
-        from datetime import datetime, timezone
+        from datetime import datetime
         
         # Wait slightly to ensure seed transaction timestamps are strictly less than our new watermark
         time.sleep(0.5)
-        now_iso = datetime.now(timezone.utc).isoformat()
+        now_iso = datetime.utcnow().isoformat()
         
         r = redis.Redis.from_url(settings.redis.url, decode_responses=True)
         deleted = 0
@@ -294,6 +294,9 @@ async def hard_reset_all():
             keys = r.keys(pattern)
             if keys:
                 deleted += r.delete(*keys)
+                
+        # Set hard reset timestamp so consumers drop stale messages from Kafka
+        r.set("hard_reset_timestamp", now_iso)
                 
         # Set watermarks to NOW so pollers ignore the newly seeded data
         r.set("watermark:sws", now_iso)
