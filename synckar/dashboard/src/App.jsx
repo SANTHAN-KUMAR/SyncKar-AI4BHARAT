@@ -4,8 +4,29 @@ import './index.css'
 
 const API_BASE = import.meta.env.VITE_API_URL || ''
 
-// UBIDs available in the seeded dataset
-const UBIDS = Array.from({ length: 15 }, (_, i) => `KA-TEST-${String(i + 1).padStart(4, '0')}`)
+// All 20 UBIDs with business names — matches the full seeded dataset
+const UBID_LIST = [
+  { ubid: 'KA-TEST-0001', name: 'Bengaluru Silk Weavers Pvt Ltd' },
+  { ubid: 'KA-TEST-0002', name: 'Mysuru Agro Industries Ltd' },
+  { ubid: 'KA-TEST-0003', name: 'Hubli Steel Fabricators Pvt Ltd' },
+  { ubid: 'KA-TEST-0004', name: 'Mangaluru Cashew Exports Ltd' },
+  { ubid: 'KA-TEST-0005', name: 'Dharwad Pharma Solutions Pvt Ltd' },
+  { ubid: 'KA-TEST-0006', name: 'Belagavi Textile Mills Ltd' },
+  { ubid: 'KA-TEST-0007', name: 'Tumkur Auto Components Pvt Ltd' },
+  { ubid: 'KA-TEST-0008', name: 'Shivamogga Paper Industries Ltd' },
+  { ubid: 'KA-TEST-0009', name: 'Kolar Gold Jewellers Pvt Ltd' },
+  { ubid: 'KA-TEST-0010', name: 'Raichur Power Equipment Ltd' },
+  { ubid: 'KA-TEST-0011', name: 'Bidar Ceramics Pvt Ltd' },
+  { ubid: 'KA-TEST-0012', name: 'Vijayapura Sugar Mills Ltd' },
+  { ubid: 'KA-TEST-0013', name: 'Gadag Granite Exports Pvt Ltd' },
+  { ubid: 'KA-TEST-0014', name: 'Koppal Iron & Steel Ltd' },
+  { ubid: 'KA-TEST-0015', name: 'Yadgir Cement Works Pvt Ltd' },
+  { ubid: 'KA-TEST-0016', name: 'Bengaluru IT Solutions Pvt Ltd' },
+  { ubid: 'KA-TEST-0017', name: 'Mysuru Handicrafts Emporium' },
+  { ubid: 'KA-TEST-0018', name: 'Mangaluru Seafood Processors Ltd' },
+  { ubid: 'KA-TEST-0019', name: 'Bengaluru Fintech Ventures Pvt Ltd' },
+  { ubid: 'KA-TEST-0020', name: 'Karnataka Organic Farms Ltd' },
+]
 
 function App() {
   const [page, setPage] = useState('overview')
@@ -247,6 +268,7 @@ function MockSystemsPage() {
   const [records, setRecords] = useState({ sws: null, shop: null, factories: null })
   const [loading, setLoading] = useState({})
   const [saving, setSaving] = useState({})
+  const [seeding, setSeeding] = useState(false)
   const [edits, setEdits] = useState({})
   const [toast, setToast] = useState(null)
   const toastTimer = useRef(null)
@@ -254,7 +276,7 @@ function MockSystemsPage() {
   const showToast = (msg, type = 'success') => {
     setToast({ msg, type })
     clearTimeout(toastTimer.current)
-    toastTimer.current = setTimeout(() => setToast(null), 3500)
+    toastTimer.current = setTimeout(() => setToast(null), 4000)
   }
 
   const fetchRecord = useCallback(async (system, ubid) => {
@@ -276,13 +298,17 @@ function MockSystemsPage() {
     }
   }, [])
 
+  const refreshAll = useCallback((ubid) => {
+    fetchRecord('sws', ubid)
+    fetchRecord('shop', ubid)
+    fetchRecord('factories', ubid)
+  }, [fetchRecord])
+
   useEffect(() => {
     setRecords({ sws: null, shop: null, factories: null })
     setEdits({})
-    fetchRecord('sws', selectedUbid)
-    fetchRecord('shop', selectedUbid)
-    fetchRecord('factories', selectedUbid)
-  }, [selectedUbid, fetchRecord])
+    refreshAll(selectedUbid)
+  }, [selectedUbid, refreshAll])
 
   const handleEdit = (system, key, value) => {
     setEdits(e => ({ ...e, [system]: { ...e[system], [key]: value } }))
@@ -298,9 +324,7 @@ function MockSystemsPage() {
         body: JSON.stringify(body),
       })
       if (!res.ok) throw new Error(`${res.status}`)
-      const data = await res.json()
       showToast(`✅ ${SYSTEM_LABELS[system].label} updated — SyncKar will propagate shortly`)
-      // Refresh the record
       await fetchRecord(system, selectedUbid)
     } catch (err) {
       showToast(`❌ Failed to update ${SYSTEM_LABELS[system].label}: ${err.message}`, 'error')
@@ -309,12 +333,13 @@ function MockSystemsPage() {
     }
   }
 
+  // ── Bug 4 fix: check response status, show error toast on 404 ──────────────
   const handleConflict = async () => {
-    // Simultaneously update address in SWS and Factories with different values
     const swsBody = { registered_address: `${Date.now()} SWS Street, Bangalore 560001` }
     const factBody = { factory_address: `${Date.now()} Factory Lane, Bangalore 560002` }
     showToast('⚡ Triggering simultaneous conflict update…', 'info')
-    await Promise.all([
+
+    const [swsRes, factRes] = await Promise.all([
       fetch(`${API_BASE}/api/mock/sws/record/${selectedUbid}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(swsBody),
@@ -324,11 +349,83 @@ function MockSystemsPage() {
         body: JSON.stringify(factBody),
       }),
     ])
+
+    if (!swsRes.ok || !factRes.ok) {
+      const code = !swsRes.ok ? swsRes.status : factRes.status
+      showToast(`❌ Conflict trigger failed (${code}) — databases may be empty. Click 'Seed Data' first.`, 'error')
+      return
+    }
+
     showToast('⚔️ Conflict submitted — watch the Conflicts tab for SWS_WINS resolution')
-    // Refresh all
-    fetchRecord('sws', selectedUbid)
-    fetchRecord('factories', selectedUbid)
+    refreshAll(selectedUbid)
   }
+
+  // ── Bug 5 fix: seed, reset, and scenario handlers ─────────────────────────
+  const handleSeed = async () => {
+    setSeeding(true)
+    try {
+      const res = await fetch(`${API_BASE}/api/mock/seed`, { method: 'POST' })
+      if (!res.ok) throw new Error(`${res.status}`)
+      const data = await res.json()
+      showToast(`✅ Data seeded — SWS: ${data.seeded?.sws}, Shop: ${data.seeded?.shop}, Factories: ${data.seeded?.factories}`)
+      refreshAll(selectedUbid)
+    } catch (err) {
+      showToast(`❌ Seed failed: ${err.message}`, 'error')
+    } finally {
+      setSeeding(false)
+    }
+  }
+
+  const handleReset = async () => {
+    setSeeding(true)
+    try {
+      const res = await fetch(`${API_BASE}/api/mock/reset`, { method: 'POST' })
+      if (!res.ok) throw new Error(`${res.status}`)
+      const data = await res.json()
+      showToast(`✅ Reset & reseeded — SWS: ${data.seeded?.sws}, Shop: ${data.seeded?.shop}, Factories: ${data.seeded?.factories}`)
+      refreshAll(selectedUbid)
+    } catch (err) {
+      showToast(`❌ Reset failed: ${err.message}`, 'error')
+    } finally {
+      setSeeding(false)
+    }
+  }
+
+  const handleScenarioA = async () => {
+    // Scenario A: SWS → Dept — update address in SWS, SyncKar propagates to Shop + Factories
+    const body = { registered_address: `${Date.now()} Scenario-A Street, Bengaluru 560001` }
+    showToast('📤 Scenario A: updating SWS address…', 'info')
+    try {
+      const res = await fetch(`${API_BASE}/api/mock/sws/record/${selectedUbid}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      if (!res.ok) throw new Error(`${res.status} — seed data first`)
+      showToast('📤 Scenario A triggered — SWS address updated, SyncKar propagating to departments…')
+      fetchRecord('sws', selectedUbid)
+    } catch (err) {
+      showToast(`❌ Scenario A failed: ${err.message}`, 'error')
+    }
+  }
+
+  const handleScenarioB = async () => {
+    // Scenario B: Dept → SWS — update address in Shop, SyncKar propagates back to SWS
+    const body = { Buss_Addr_Line1: `${Date.now()} Scenario-B Road, Bengaluru 560002` }
+    showToast('📥 Scenario B: updating Shop address…', 'info')
+    try {
+      const res = await fetch(`${API_BASE}/api/mock/shop/record/${selectedUbid}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      if (!res.ok) throw new Error(`${res.status} — seed data first`)
+      showToast('📥 Scenario B triggered — Shop address updated, SyncKar propagating to SWS…')
+      fetchRecord('shop', selectedUbid)
+    } catch (err) {
+      showToast(`❌ Scenario B failed: ${err.message}`, 'error')
+    }
+  }
+
+  const handleScenarioC = () => handleConflict()
 
   return (
     <div>
@@ -341,20 +438,41 @@ function MockSystemsPage() {
       <div className="mock-controls">
         <div className="mock-controls-left">
           <label className="mock-label">Business (UBID)</label>
+          {/* Bug 3 fix: all 20 UBIDs with business names */}
           <select
             className="mock-select"
             value={selectedUbid}
             onChange={e => setSelectedUbid(e.target.value)}
           >
-            {UBIDS.map(u => <option key={u} value={u}>{u}</option>)}
+            {UBID_LIST.map(u => (
+              <option key={u.ubid} value={u.ubid}>{u.ubid} — {u.name}</option>
+            ))}
           </select>
         </div>
         <div className="mock-controls-right">
-          <button className="btn btn-conflict" onClick={handleConflict}>
-            ⚔️ Trigger Simultaneous Conflict
+          {/* Bug 5 fix: seed + reset buttons */}
+          <button className="btn btn-seed" onClick={handleSeed} disabled={seeding}>
+            {seeding ? 'Seeding…' : '🌱 Seed Data'}
           </button>
-          <span className="mock-hint">Updates SWS + Factories simultaneously → SWS_WINS</span>
+          <button className="btn btn-reset" onClick={handleReset} disabled={seeding}>
+            {seeding ? 'Resetting…' : '🔄 Reset & Reseed'}
+          </button>
+          {/* Bug 5 fix: scenario buttons */}
+          <button className="btn btn-scenario-a" onClick={handleScenarioA}>
+            📤 Scenario A: SWS→Dept
+          </button>
+          <button className="btn btn-scenario-b" onClick={handleScenarioB}>
+            📥 Scenario B: Dept→SWS
+          </button>
+          <button className="btn btn-conflict" onClick={handleScenarioC}>
+            ⚔️ Scenario C: Conflict
+          </button>
         </div>
+      </div>
+      <div className="mock-hint-row">
+        <span className="mock-hint">Scenario A: SWS address → propagates to Shop &amp; Factories</span>
+        <span className="mock-hint">Scenario B: Shop address → propagates back to SWS</span>
+        <span className="mock-hint">Scenario C: simultaneous SWS + Factories update → SWS_WINS conflict</span>
       </div>
 
       {/* Three system panels */}
