@@ -341,3 +341,80 @@ async def run_scenario(name: str):
     except Exception as e:
         logger.error("scenario_run_error", scenario=name, error=str(e))
         raise HTTPException(status_code=502, detail=f"Scenario failed: {e}")
+
+
+@router.post("/mock/seed_dlq")
+async def seed_dlq():
+    """
+    Insert realistic mock DLQ entries for demo purposes.
+    These simulate real failure scenarios that the Data Steward dashboard handles.
+    """
+    import uuid
+    from synckar.db import get_conn, put_conn
+    from datetime import datetime, timedelta
+
+    dlq_entries = [
+        {
+            "correlation_id": str(uuid.uuid4()),
+            "ubid": "KA-TEST-0007",
+            "raw_payload": json.dumps({
+                "ubid": "KA-TEST-0007",
+                "source_system": "dept_shop_establishment",
+                "field_name": "registered_address",
+                "new_value": "KIADB Phase II, Tumakuru 572106 (Updated)",
+                "correlation_id": str(uuid.uuid4()),
+            }),
+            "error_reason": "SOAP endpoint unreachable: ConnectionTimeout after 30s — Shop Establishment API at shop-est.karnataka.gov.in:8443 refused connection. Retry exhausted after 10 attempts with exponential backoff (max 30min).",
+            "source_system": "dept_shop_establishment",
+        },
+        {
+            "correlation_id": str(uuid.uuid4()),
+            "ubid": "KA-TEST-0012",
+            "raw_payload": json.dumps({
+                "ubid": "KA-TEST-0012",
+                "source_system": "sws",
+                "field_name": "license_status",
+                "new_value": "renewed",
+                "correlation_id": str(uuid.uuid4()),
+            }),
+            "error_reason": "Schema drift detected: field 'Lic_Status' expected enum ['valid','expired','suspended','revoked'] but received 'renewed'. Record quarantined — mapping_v3.yaml does not cover this value. Requires Data Steward review.",
+            "source_system": "sws",
+        },
+        {
+            "correlation_id": str(uuid.uuid4()),
+            "ubid": "KA-TEST-0015",
+            "raw_payload": json.dumps({
+                "ubid": "KA-TEST-0015",
+                "source_system": "dept_factories",
+                "field_name": "worker_count",
+                "new_value": "780",
+                "correlation_id": str(uuid.uuid4()),
+            }),
+            "error_reason": "PermanentWriteError: Factories API returned HTTP 422 — 'worker_count exceeds registered factory capacity of 500'. Business rule violation at target. Cannot auto-resolve.",
+            "source_system": "dept_factories",
+        },
+    ]
+
+    try:
+        conn = get_conn()
+        cursor = conn.cursor()
+        for entry in dlq_entries:
+            cursor.execute(
+                """
+                INSERT INTO dead_letter_queue (correlation_id, ubid, raw_payload, error_reason, source_system, status)
+                VALUES (%s::uuid, %s, %s, %s, %s, 'PENDING')
+                """,
+                (
+                    entry["correlation_id"],
+                    entry["ubid"],
+                    entry["raw_payload"],
+                    entry["error_reason"],
+                    entry["source_system"],
+                ),
+            )
+        conn.commit()
+        put_conn(conn)
+        return {"seeded": len(dlq_entries), "message": "DLQ demo entries created"}
+    except Exception as e:
+        logger.error("seed_dlq_error", error=str(e))
+        raise HTTPException(status_code=500, detail=f"DLQ seed failed: {e}")

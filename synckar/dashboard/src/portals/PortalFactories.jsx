@@ -18,6 +18,7 @@ export default function PortalFactories() {
   const [activity, setActivity] = useState([])
   const [inboundBanner, setInboundBanner] = useState(null)
   const lastModifiedRef = useRef(null)
+  const [syncNotifications, setSyncNotifications] = useState([])
 
   const showToast = (msg, type = 'success') => {
     setToast({ msg, type })
@@ -69,6 +70,20 @@ export default function PortalFactories() {
     const id = setInterval(() => silentRefresh(selectedUbid), 5000)
     return () => clearInterval(id)
   }, [selectedUbid, silentRefresh])
+
+  // Fetch SyncKar notifications for this UBID
+  useEffect(() => {
+    const fetchNotif = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/audit?ubid=${selectedUbid}&limit=5`)
+        const data = await res.json()
+        setSyncNotifications(data.audit_entries || [])
+      } catch { /* silent */ }
+    }
+    fetchNotif()
+    const id = setInterval(fetchNotif, 5000)
+    return () => clearInterval(id)
+  }, [selectedUbid])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -313,6 +328,33 @@ export default function PortalFactories() {
                     </div>
                   ))}
                 </div>
+              )}
+            </div>
+            <div className="portal-card">
+              <div className="portal-card-header factories-header-card">
+                <span>SyncKar Notifications</span>
+                {syncNotifications.length > 0 && <span className="portal-notification-badge">{syncNotifications.length}</span>}
+              </div>
+              {syncNotifications.length === 0 ? (
+                <div className="portal-empty-sm">No cross-system events for this record yet.</div>
+              ) : (
+                <>
+                  <div className="portal-notification-panel">
+                    {syncNotifications.map((n, i) => (
+                      <div key={i} className="portal-notification-row">
+                        <div className={`portal-notification-dot${n.conflict_detected ? ' conflict' : ''}`} />
+                        <div className="portal-notification-content">
+                          <div className="portal-notification-text">
+                            <strong>{n.field_modified}</strong> synced from <em>{n.source_system}</em> → <em>{n.target_system}</em>
+                            {n.conflict_detected && <span style={{ color: '#d97706', fontWeight: 600 }}> (Conflict Resolved)</span>}
+                          </div>
+                          <div className="portal-notification-time">{n.created_at?.slice(0, 19).replace('T', ' ')}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <Link to="/" className="portal-dashboard-link">View Full Dashboard →</Link>
+                </>
               )}
             </div>
           </div>

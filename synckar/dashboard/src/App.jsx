@@ -270,7 +270,8 @@ function LiveDemoConsole({ API_BASE }) {
   const [running, setRunning] = useState(false)
   const [liveAudit, setLiveAudit] = useState([])
   const [lastEventId, setLastEventId] = useState(null)
-  const [activeFlow, setActiveFlow] = useState(null) // e.g. 'sws-to-factories'
+  const [activeFlow, setActiveFlow] = useState(null)
+  const [conflictDetail, setConflictDetail] = useState(null)
   const toastTimer = useRef(null)
 
   const showToast = (msg, type = 'success') => {
@@ -322,9 +323,24 @@ function LiveDemoConsole({ API_BASE }) {
       
       if (endpoint === 'hard_reset') {
         showToast('System completely reset (Mock DB + Audit Ledger + Redis).', 'success')
-        setLiveAudit([]) // clear UI instantly
+        setLiveAudit([])
+        setConflictDetail(null)
+      } else if (endpoint === 'seed_dlq') {
+        showToast('DLQ demo entries seeded — check the DLQ page.', 'success')
       } else if (endpoint.startsWith('scenario/')) {
         showToast(`Scenario ${data.scenario.toUpperCase()} Triggered: ${data.action}`, 'info')
+        // After Scenario C, fetch conflict details
+        if (data.scenario === 'c') {
+          setTimeout(async () => {
+            try {
+              const cRes = await fetch(`${API_BASE}/api/dlq/conflicts?ubid=KA-TEST-0001&limit=1`)
+              const cData = await cRes.json()
+              if (cData.conflicts?.length > 0) {
+                setConflictDetail(cData.conflicts[0])
+              }
+            } catch { /* silent */ }
+          }, 3000) // wait for pipeline to process
+        }
       }
     } catch (err) {
       showToast(`Action failed: ${err.message}`, 'error')
@@ -344,31 +360,35 @@ function LiveDemoConsole({ API_BASE }) {
         <p>Use this console during your split-screen presentation to run automated scenarios or observe live sync events.</p>
       </div>
 
-      <div className="demo-controls-bar" style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginBottom: '32px' }}>
-        <div className="card" style={{ padding: '16px', display: 'flex', gap: '12px', flex: 1, alignItems: 'center' }}>
-          <div>
-            <div className="form-label" style={{ marginBottom: '4px' }}>Automated Scenarios (UBID: KA-TEST-0001)</div>
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <button className="btn btn-outline btn-sm" onClick={() => handleAction('scenario/a')} disabled={running}>
-                Scenario A: SWS Update
-              </button>
-              <button className="btn btn-outline btn-sm" onClick={() => handleAction('scenario/b')} disabled={running}>
-                Scenario B: Dept Update
-              </button>
-              <button className="btn btn-primary btn-sm" onClick={() => handleAction('scenario/c')} disabled={running}>
-                Scenario C: Trigger Conflict
-              </button>
-            </div>
+      <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginBottom: '24px' }}>
+        <div className="card" style={{ padding: '14px', flex: 1, minWidth: '260px' }}>
+          <div className="form-label" style={{ marginBottom: '6px' }}>Automated Scenarios (UBID: KA-TEST-0001)</div>
+          <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '8px' }}>
+            Each scenario triggers a real event through the full pipeline: Outbox → Kafka → Adapter → Target API → Audit Ledger.
           </div>
-        </div>
-        
-        <div className="card" style={{ padding: '16px', display: 'flex', alignItems: 'center' }}>
-          <div>
-            <div className="form-label" style={{ marginBottom: '4px', color: '#dc2626' }}>Danger Zone</div>
-            <button className="btn btn-outline btn-sm" style={{ borderColor: '#dc2626', color: '#dc2626' }} onClick={() => handleAction('hard_reset')} disabled={running}>
-              Hard Reset Entire System
+          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+            <button className="btn btn-outline btn-sm" onClick={() => handleAction('scenario/a')} disabled={running}
+              title="Updates registered address in SWS → auto-syncs to Shop Est. and Factories">
+              A: SWS → Depts
+            </button>
+            <button className="btn btn-outline btn-sm" onClick={() => handleAction('scenario/b')} disabled={running}
+              title="Updates signatory in Factories → auto-syncs back to SWS">
+              B: Dept → SWS
+            </button>
+            <button className="btn btn-primary btn-sm" onClick={() => handleAction('scenario/c')} disabled={running}
+              title="Fires simultaneous conflicting address updates from SWS and Factories to trigger conflict resolution">
+              C: Conflict ⚡
             </button>
           </div>
+        </div>
+        <div className="card" style={{ padding: '14px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+          <div className="form-label" style={{ color: 'var(--text-muted)' }}>Utilities</div>
+          <button className="btn btn-outline btn-sm" onClick={() => handleAction('seed_dlq')} disabled={running}>
+            Seed DLQ Entries
+          </button>
+          <button className="btn btn-outline btn-sm" style={{ borderColor: '#dc2626', color: '#dc2626' }} onClick={() => handleAction('hard_reset')} disabled={running}>
+            Hard Reset
+          </button>
         </div>
       </div>
 
@@ -415,6 +435,32 @@ function LiveDemoConsole({ API_BASE }) {
         </div>
       </div>
 
+      {/* Conflict Resolution Detail Card */}
+      {conflictDetail && (
+        <div className="conflict-card">
+          <h4>⚡ Conflict Resolution — Explained</h4>
+          <p style={{ fontSize: '13px', color: '#78350f', marginBottom: '12px', lineHeight: 1.5 }}>
+            Two systems updated the <strong>same field</strong> (<code>{conflictDetail.field}</code>) for the same business 
+            (<code>{conflictDetail.ubid}</code>) within the conflict detection window. SyncKar automatically applied 
+            the <strong>{formatPolicy(conflictDetail.policy_applied)}</strong> policy to resolve this without human intervention.
+          </p>
+          <div className="conflict-detail-grid">
+            <div className="conflict-value-box conflict-winner">
+              <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--status-success)', marginBottom: '4px' }}>✓ WINNER — Value Kept</div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '13px' }}>{conflictDetail.winning_value}</div>
+            </div>
+            <div className="conflict-value-box conflict-loser">
+              <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--status-error)', marginBottom: '4px' }}>✗ DISCARDED — Logged in Audit</div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '13px' }}>{conflictDetail.losing_value}</div>
+            </div>
+          </div>
+          <p style={{ fontSize: '11px', color: '#78350f', marginTop: '8px' }}>
+            The discarded value is never deleted — it's preserved in the immutable audit ledger for legal traceability.
+          </p>
+        </div>
+      )}
+
+
       <div className="table-container">
         <div className="table-header" style={{ alignItems: 'center' }}>
           <h3>Live Sync Stream</h3>
@@ -423,11 +469,12 @@ function LiveDemoConsole({ API_BASE }) {
             Live Connection Active
           </div>
         </div>
-        <div style={{ padding: '0 24px 16px 24px', fontSize: '13px', color: 'var(--text-secondary)', display: 'flex', gap: '16px' }}>
+        <div style={{ padding: '0 16px 12px 16px', fontSize: '12px', color: 'var(--text-secondary)', display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
           <strong>Legend:</strong>
-          <span><span className="badge badge-success" style={{ fontSize: '10px', padding: '2px 6px' }}>Successfully Synced</span> : Propagated to target</span>
-          <span><span className="badge badge-warning" style={{ fontSize: '10px', padding: '2px 6px' }}>Prioritized SWS Rules</span> : Conflict resolved using SWS</span>
+          <span><span className="badge badge-success" style={{ fontSize: '10px', padding: '2px 6px' }}>Successfully Synced</span> Propagated</span>
+          <span><span className="badge badge-warning" style={{ fontSize: '10px', padding: '2px 6px' }}>Prioritized SWS Rules</span> Conflict resolved</span>
         </div>
+        <div className="table-scroll">
         <table>
           <thead>
             <tr>
@@ -467,6 +514,7 @@ function LiveDemoConsole({ API_BASE }) {
             )}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   )
@@ -495,6 +543,7 @@ function AuditPage({ audit, searchUbid, onSearch, onFetch }) {
             <button className="btn btn-outline" onClick={onFetch}>Search</button>
           </div>
         </div>
+        <div className="table-scroll">
         <table>
           <thead>
             <tr>
@@ -534,6 +583,7 @@ function AuditPage({ audit, searchUbid, onSearch, onFetch }) {
             )}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   )
@@ -553,6 +603,7 @@ function ConflictsPage({ conflicts, onRefresh }) {
           <h3>Resolved Conflicts ({conflicts.length})</h3>
           <button className="btn btn-outline btn-sm" onClick={onRefresh}>Refresh Log</button>
         </div>
+        <div className="table-scroll">
         <table>
           <thead>
             <tr>
@@ -582,6 +633,7 @@ function ConflictsPage({ conflicts, onRefresh }) {
             )}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   )
@@ -594,12 +646,21 @@ function DLQPage({ dlq }) {
     <div>
       <div className="page-title">
         <h2>Dead Letter Queue (DLQ)</h2>
-        <p>Messages that failed to process after maximum retries.</p>
+        <p>Messages that failed to process after maximum retries. A Data Steward reviews and resolves these items.</p>
+      </div>
+      <div className="card" style={{ marginBottom: '20px', borderLeft: '4px solid var(--status-error)' }}>
+        <div style={{ fontSize: '13px', lineHeight: 1.6, color: 'var(--text-secondary)' }}>
+          <strong>What is the DLQ?</strong> When SyncKar cannot deliver an update to a target system after exhausting all retries 
+          (10 attempts with exponential backoff over 30 minutes), the failed event is routed here instead of being silently dropped. 
+          This ensures <strong>zero data loss</strong> — every failed propagation is tracked, auditable, and can be manually retried 
+          or resolved by a Data Steward once the underlying issue is fixed.
+        </div>
       </div>
       <div className="table-container">
         <div className="table-header">
           <h3>Failed Events ({dlq.length})</h3>
         </div>
+        <div className="table-scroll">
         <table>
           <thead>
             <tr>
@@ -617,18 +678,19 @@ function DLQPage({ dlq }) {
                 <td className="mono">{item.created_at?.slice(0, 19).replace('T', ' ')}</td>
                 <td><span className="badge badge-neutral">{item.ubid}</span></td>
                 <td>{item.source_system}</td>
-                <td className="mono text-sm" style={{ maxWidth: 250, overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.error_reason}</td>
+                <td style={{ maxWidth: 320, fontSize: '12px', lineHeight: 1.4, color: 'var(--text-secondary)' }}>{item.error_reason}</td>
                 <td><span className="badge badge-error">{item.status}</span></td>
                 <td><button className="btn btn-outline btn-sm">Retry</button></td>
               </tr>
             ))}
             {dlq.length === 0 && (
               <tr><td colSpan={6} style={{ textAlign: 'center', padding: '48px', color: 'var(--text-muted)' }}>
-                DLQ is currently empty.
+                DLQ is currently empty. Use "Seed DLQ Entries" in the Live Demo Console to populate demo data.
               </td></tr>
             )}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   )
@@ -649,6 +711,7 @@ function VerifyPage({ audit, verifyResult, onVerify, onFetchAudit }) {
         <div className="table-header">
           <h3>Recent Audit Records</h3>
         </div>
+        <div className="table-scroll">
         <table>
           <thead>
             <tr>
@@ -675,6 +738,7 @@ function VerifyPage({ audit, verifyResult, onVerify, onFetchAudit }) {
             ))}
           </tbody>
         </table>
+        </div>
       </div>
 
       {verifyResult && (
