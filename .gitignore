@@ -1,3 +1,9 @@
 # RSA keys — never commit private keys to version control
 keys/
 *.pem
+
+.agent/
+.kiro/
+.vscode/
+keys/
+*.pem
