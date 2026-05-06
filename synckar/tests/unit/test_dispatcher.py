@@ -243,7 +243,9 @@ def test_ubid_not_found_is_silently_skipped(patch_dispatcher_deps):
 
     with (
         mock.patch("synckar.pipeline.dispatcher._get_shop_client") as mock_shop,
+        mock.patch("synckar.pipeline.dispatcher._get_factories_client") as mock_fact,
         mock.patch("synckar.pipeline.dispatcher.shop_translate_outbound") as mock_tx,
+        mock.patch("synckar.pipeline.dispatcher.factories_translate_outbound") as mock_fact_tx,
     ):
         mock_tx.return_value = {"Buss_Addr_Line1": "New Address"}
         shop_client = mock.Mock()
@@ -251,6 +253,11 @@ def test_ubid_not_found_is_silently_skipped(patch_dispatcher_deps):
             "UBID not found", system_id="shop_establishment", ubid="KA-TEST-0001"
         )
         mock_shop.return_value = shop_client
+        
+        mock_fact_tx.return_value = {"factory_address": "New Address"}
+        fact_client = mock.Mock()
+        fact_client.update_record.return_value = {"updated_fields": ["factory_address"]}
+        mock_fact.return_value = fact_client
 
         event = _make_event()
         results = dispatch_sws_to_departments(event)

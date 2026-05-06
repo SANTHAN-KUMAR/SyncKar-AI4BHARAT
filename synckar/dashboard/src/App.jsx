@@ -153,7 +153,7 @@ function App() {
 
       <main className="main">
         {page === 'overview'  && <OverviewPage stats={stats} health={health} />}
-        {page === 'mock'      && <MockSystemsPage />}
+        {page === 'mock'      && <LiveDemoConsole API_BASE={API_BASE} />}
         {page === 'audit'     && (
           <AuditPage
             audit={audit}
@@ -236,14 +236,12 @@ function OverviewPage({ stats, health }) {
 
 // ─── Mock Systems (Clean Pipeline View) ──────────────────────────────────────
 
-function MockSystemsPage() {
-  const [selectedUbid, setSelectedUbid] = useState('KA-TEST-0001')
-  const [records, setRecords] = useState({ sws: null, shop: null, factories: null })
-  const [saving, setSaving] = useState(false)
-  const [seeding, setSeeding] = useState(false)
-  const [edits, setEdits] = useState({})
+function LiveDemoConsole({ API_BASE }) {
   const [toast, setToast] = useState(null)
-  const [syncActive, setSyncActive] = useState(false)
+  const [running, setRunning] = useState(false)
+  const [liveAudit, setLiveAudit] = useState([])
+  const [lastEventId, setLastEventId] = useState(null)
+  const [activeFlow, setActiveFlow] = useState(null) // e.g. 'sws-to-factories'
   const toastTimer = useRef(null)
 
   const showToast = (msg, type = 'success') => {
@@ -252,103 +250,57 @@ function MockSystemsPage() {
     toastTimer.current = setTimeout(() => setToast(null), 4000)
   }
 
-  const triggerSyncAnimation = () => {
-    setSyncActive(true)
-    setTimeout(() => setSyncActive(false), 2000)
-  }
+  // Poll for live events
+  useEffect(() => {
+    const fetchLiveAudit = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/audit?limit=10`)
+        const data = await res.json()
+        const entries = data.audit_entries || []
+        setLiveAudit(entries)
+        
+        // Check for new events to trigger animation
+        if (entries.length > 0) {
+          const newest = entries[0]
+          if (lastEventId !== newest.audit_id) {
+            setLastEventId(newest.audit_id)
+            // Animate flow based on source/target
+            setActiveFlow(`${newest.source_system}-${newest.target_system}`)
+            setTimeout(() => setActiveFlow(null), 2500)
+          }
+        }
+      } catch (e) {
+        // silently ignore polling errors
+      }
+    }
+    
+    fetchLiveAudit()
+    const interval = setInterval(fetchLiveAudit, 1500)
+    return () => clearInterval(interval)
+  }, [API_BASE, lastEventId])
 
-  const fetchRecord = useCallback(async (system, ubid) => {
+  const handleAction = async (endpoint, payload = null) => {
+    setRunning(true)
     try {
-      const res = await fetch(`${API_BASE}/api/mock/${system}/record/${ubid}`)
+      const opts = { method: 'POST' }
+      if (payload) {
+        opts.headers = { 'Content-Type': 'application/json' }
+        opts.body = JSON.stringify(payload)
+      }
+      const res = await fetch(`${API_BASE}/api/mock/${endpoint}`, opts)
       if (!res.ok) throw new Error(`${res.status}`)
       const data = await res.json()
-      setRecords(r => ({ ...r, [system]: data }))
-      // Pre-fill edits for SWS (Source of truth)
-      if (system === 'sws') {
-        setEdits({
-          registered_address: data.registered_address || '',
-          employee_headcount: data.employee_headcount || 0,
-        })
-      }
-    } catch (err) {
-      setRecords(r => ({ ...r, [system]: null }))
-    }
-  }, [])
-
-  const refreshAll = useCallback((ubid) => {
-    fetchRecord('sws', ubid)
-    fetchRecord('shop', ubid)
-    fetchRecord('factories', ubid)
-  }, [fetchRecord])
-
-  useEffect(() => {
-    setRecords({ sws: null, shop: null, factories: null })
-    setEdits({})
-    refreshAll(selectedUbid)
-  }, [selectedUbid, refreshAll])
-
-  const handleEdit = (key, value) => {
-    setEdits(e => ({ ...e, [key]: value }))
-  }
-
-  const handleSaveSWS = async () => {
-    setSaving(true)
-    try {
-      const res = await fetch(`${API_BASE}/api/mock/sws/record/${selectedUbid}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(edits),
-      })
-      if (!res.ok) throw new Error(`${res.status}`)
-      showToast('SWS Record Updated. SyncKar is routing the changes.', 'info')
-      triggerSyncAnimation()
       
-      // Refresh to see changes propagate
-      setTimeout(() => refreshAll(selectedUbid), 1000)
-    } catch (err) {
-      showToast(`Update Failed: ${err.message}`, 'error')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const handleConflict = async () => {
-    const swsBody = { registered_address: `Conflict Addr A - ${new Date().getTime()}` }
-    const factBody = { factory_address: `Conflict Addr B - ${new Date().getTime()}` }
-    showToast('Triggering simultaneous conflict...', 'warning')
-
-    const [swsRes, factRes] = await Promise.all([
-      fetch(`${API_BASE}/api/mock/sws/record/${selectedUbid}`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(swsBody),
-      }),
-      fetch(`${API_BASE}/api/mock/factories/record/${selectedUbid}`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(factBody),
-      }),
-    ])
-
-    if (!swsRes.ok || !factRes.ok) {
-      showToast('Conflict trigger failed. Ensure DB is seeded.', 'error')
-      return
-    }
-
-    triggerSyncAnimation()
-    showToast('Conflict created. SWS_WINS policy applied.', 'success')
-    setTimeout(() => refreshAll(selectedUbid), 1500)
-  }
-
-  const handleAction = async (endpoint, successMsg) => {
-    setSeeding(true)
-    try {
-      const res = await fetch(`${API_BASE}/api/mock/${endpoint}`, { method: 'POST' })
-      if (!res.ok) throw new Error(`${res.status}`)
-      showToast(successMsg, 'success')
-      refreshAll(selectedUbid)
+      if (endpoint === 'hard_reset') {
+        showToast('System completely reset (Mock DB + Audit Ledger + Redis).', 'success')
+        setLiveAudit([]) // clear UI instantly
+      } else if (endpoint.startsWith('scenario/')) {
+        showToast(`Scenario ${data.scenario.toUpperCase()} Triggered: ${data.action}`, 'info')
+      }
     } catch (err) {
       showToast(`Action failed: ${err.message}`, 'error')
     } finally {
-      setSeeding(false)
+      setRunning(false)
     }
   }
 
@@ -359,81 +311,49 @@ function MockSystemsPage() {
       )}
 
       <div className="page-title">
-        <h2>Data Flow Demonstration</h2>
-        <p>Update the source system (SWS) and observe SyncKar propagate the changes to connected department systems.</p>
+        <h2>Live Demo Console</h2>
+        <p>Use this console during your split-screen presentation to run automated scenarios or observe live sync events.</p>
       </div>
 
-      <div className="demo-controls-bar">
-        <div className="demo-controls-group">
-          <label className="form-label" style={{ marginBottom: 0 }}>Target Business Entity:</label>
-          <select
-            className="input"
-            style={{ width: '300px' }}
-            value={selectedUbid}
-            onChange={e => setSelectedUbid(e.target.value)}
-          >
-            {UBID_LIST.map(u => (
-              <option key={u.ubid} value={u.ubid}>{u.ubid} - {u.name}</option>
-            ))}
-          </select>
+      <div className="demo-controls-bar" style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginBottom: '32px' }}>
+        <div className="card" style={{ padding: '16px', display: 'flex', gap: '12px', flex: 1, alignItems: 'center' }}>
+          <div>
+            <div className="form-label" style={{ marginBottom: '4px' }}>Automated Scenarios (UBID: KA-TEST-0001)</div>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button className="btn btn-outline btn-sm" onClick={() => handleAction('scenario/a')} disabled={running}>
+                Scenario A: SWS Update
+              </button>
+              <button className="btn btn-outline btn-sm" onClick={() => handleAction('scenario/b')} disabled={running}>
+                Scenario B: Dept Update
+              </button>
+              <button className="btn btn-primary btn-sm" onClick={() => handleAction('scenario/c')} disabled={running}>
+                Scenario C: Trigger Conflict
+              </button>
+            </div>
+          </div>
         </div>
-        <div className="demo-controls-group">
-          <button className="btn btn-outline btn-sm" onClick={() => handleAction('seed', 'Database Seeded')} disabled={seeding}>
-            Seed Database
-          </button>
-          <button className="btn btn-outline btn-sm" onClick={() => handleAction('reset', 'Database Reset')} disabled={seeding}>
-            Reset All
-          </button>
-          <button className="btn btn-primary btn-sm" onClick={handleConflict}>
-            Simulate Conflict
-          </button>
+        
+        <div className="card" style={{ padding: '16px', display: 'flex', alignItems: 'center' }}>
+          <div>
+            <div className="form-label" style={{ marginBottom: '4px', color: '#dc2626' }}>Danger Zone</div>
+            <button className="btn btn-outline btn-sm" style={{ borderColor: '#dc2626', color: '#dc2626' }} onClick={() => handleAction('hard_reset')} disabled={running}>
+              Hard Reset Entire System
+            </button>
+          </div>
         </div>
       </div>
 
-      <div className="pipeline-container">
+      <div className="pipeline-container" style={{ marginBottom: '32px' }}>
         {/* Source System */}
-        <div className="pipeline-node">
+        <div className={`pipeline-node ${activeFlow?.startsWith('sws-') ? 'active-pulse' : ''}`}>
           <div className="pipeline-node-header">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <rect width="18" height="18" x="3" y="3" rx="2" ry="2"></rect>
             </svg>
             <div>
               <div className="pipeline-node-title">Single Window System</div>
-              <div className="pipeline-node-subtitle">Source of Truth (Write Access)</div>
+              <div className="pipeline-node-subtitle">Authoritative Registry</div>
             </div>
-          </div>
-          <div className="pipeline-node-body">
-            {!records.sws ? (
-              <div className="text-muted">Entity not found. Please Seed Database.</div>
-            ) : (
-              <>
-                <div className="form-group">
-                  <label className="form-label">Registered Address</label>
-                  <input
-                    type="text"
-                    className="input"
-                    value={edits.registered_address ?? ''}
-                    onChange={e => handleEdit('registered_address', e.target.value)}
-                  />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Employee Headcount</label>
-                  <input
-                    type="number"
-                    className="input"
-                    value={edits.employee_headcount ?? ''}
-                    onChange={e => handleEdit('employee_headcount', Number(e.target.value))}
-                  />
-                </div>
-                
-                <div className="node-footer">
-                  <span className="last-sync mono">Last Update: {records.sws.last_modified?.slice(11, 19)}</span>
-                  <button className="btn btn-primary" onClick={handleSaveSWS} disabled={saving}>
-                    {saving ? 'Saving...' : 'Update Record'}
-                  </button>
-                </div>
-              </>
-            )}
           </div>
         </div>
 
@@ -444,13 +364,13 @@ function MockSystemsPage() {
           </svg>
           <div className="middleware-title">SyncKar</div>
           <div className="middleware-desc">Event Bus & Resolver</div>
-          <div className={`middleware-pulse ${syncActive ? 'active' : ''}`}>
-            ● SYNCING...
+          <div className={`middleware-pulse ${activeFlow ? 'active' : ''}`}>
+            {activeFlow ? '● PROCESSING...' : 'IDLE'}
           </div>
         </div>
 
         {/* Target Systems */}
-        <div className="pipeline-node">
+        <div className={`pipeline-node ${activeFlow?.endsWith('factories') || activeFlow?.endsWith('shop_establishment') ? 'active-pulse' : ''}`}>
           <div className="pipeline-node-header">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
@@ -460,45 +380,56 @@ function MockSystemsPage() {
             </svg>
             <div>
               <div className="pipeline-node-title">Department Systems</div>
-              <div className="pipeline-node-subtitle">Downstream Subscribers (Read-Only Demo)</div>
+              <div className="pipeline-node-subtitle">Shop Est. & Factories</div>
             </div>
           </div>
-          <div className="pipeline-node-body">
-            {!records.shop ? (
-              <div className="text-muted">Entity not found. Please Seed Database.</div>
-            ) : (
-              <>
-                <div style={{ marginBottom: '24px' }}>
-                  <div className="form-label" style={{ color: 'var(--gov-blue)' }}>Shop Establishment Dept</div>
-                  <div className="card" style={{ padding: '16px', marginBottom: '0' }}>
-                    <div className="form-group" style={{ marginBottom: '8px' }}>
-                      <span className="text-sm text-muted">Business Address:</span>
-                      <div className="mono" style={{ fontSize: '13px' }}>{records.shop.Buss_Addr_Line1}</div>
-                    </div>
-                    <div className="form-group" style={{ marginBottom: '0' }}>
-                      <span className="text-sm text-muted">Employee Count:</span>
-                      <div className="mono" style={{ fontSize: '13px' }}>{records.shop.Emp_Count}</div>
-                    </div>
-                  </div>
-                </div>
-
-                <div>
-                  <div className="form-label" style={{ color: 'var(--gov-blue)' }}>Factories Department</div>
-                  <div className="card" style={{ padding: '16px', marginBottom: '0' }}>
-                    <div className="form-group" style={{ marginBottom: '8px' }}>
-                      <span className="text-sm text-muted">Factory Address:</span>
-                      <div className="mono" style={{ fontSize: '13px' }}>{records.factories?.factory_address || '—'}</div>
-                    </div>
-                    <div className="form-group" style={{ marginBottom: '0' }}>
-                      <span className="text-sm text-muted">Worker Count:</span>
-                      <div className="mono" style={{ fontSize: '13px' }}>{records.factories?.worker_count || '—'}</div>
-                    </div>
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
         </div>
+      </div>
+
+      <div className="table-container">
+        <div className="table-header">
+          <h3>Live Sync Stream</h3>
+          <span className="badge badge-success">Polling...</span>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Timestamp</th>
+              <th>Target ID</th>
+              <th>Property Modified</th>
+              <th>Direction</th>
+              <th>Value Snippet</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {liveAudit.map((row, i) => (
+              <tr key={row.audit_id} style={i === 0 && activeFlow ? { backgroundColor: '#eef2ff' } : {}}>
+                <td className="mono">{row.created_at?.slice(11, 19)}</td>
+                <td><span className="badge badge-neutral">{row.ubid}</span></td>
+                <td>{row.field_modified}</td>
+                <td className="text-sm" style={{ fontWeight: 500 }}>
+                  {row.source_system} &rarr; {row.target_system}
+                </td>
+                <td className="mono text-sm" style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {row.new_value}
+                </td>
+                <td>
+                  {row.conflict_detected ? (
+                    <span className="badge badge-warning" style={{ fontSize: '10px' }}>{row.resolution_policy || 'CONFLICT'}</span>
+                  ) : (
+                    <span className="badge badge-success" style={{ fontSize: '10px' }}>SYNCED</span>
+                  )}
+                </td>
+              </tr>
+            ))}
+            {liveAudit.length === 0 && (
+              <tr><td colSpan={6} style={{ textAlign: 'center', padding: '48px', color: 'var(--text-muted)' }}>
+                No events flowing. Trigger an update in a portal to see live events.
+              </td></tr>
+            )}
+          </tbody>
+        </table>
       </div>
     </div>
   )

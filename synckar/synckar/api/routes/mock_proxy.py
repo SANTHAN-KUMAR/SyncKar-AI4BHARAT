@@ -252,3 +252,92 @@ async def reset_all():
     except Exception as e:
         logger.error("mock_reset_error", error=str(e))
         raise HTTPException(status_code=502, detail=f"Reset failed: {e}")
+
+@router.post("/mock/hard_reset")
+async def hard_reset_all():
+    """
+    Clears all records from mock systems AND truncates the SyncKar PostgreSQL DB + Redis.
+    Provides a completely clean slate for demo purposes.
+    """
+    # 1. Reset mock systems
+    mock_reset_result = await reset_all()
+    
+    # 2. Reset Postgres DB
+    try:
+        from synckar.db import get_conn, put_conn
+        conn = get_conn()
+        cursor = conn.cursor()
+        cursor.execute("TRUNCATE audit_ledger, conflict_log, dead_letter_queue, outbox, poller_state, dept_snapshots CASCADE;")
+        conn.commit()
+        put_conn(conn)
+        db_cleared = True
+    except Exception as e:
+        logger.error("db_truncate_failed", error=str(e))
+        db_cleared = False
+        
+    # 3. Reset Redis
+    try:
+        import redis
+        r = redis.Redis.from_url(settings.redis.url, decode_responses=True)
+        deleted = 0
+        for pattern in ["sws:watermark", "factories:watermark", "shop_establishment:watermark", "idem:*", "conflict_window:*", "circuit:*", "rate_limit:*"]:
+            keys = r.keys(pattern)
+            if keys:
+                deleted += r.delete(*keys)
+        redis_cleared = True
+    except Exception as e:
+        logger.error("redis_flush_failed", error=str(e))
+        redis_cleared = False
+        
+    return {
+        "mock_systems": mock_reset_result,
+        "database_truncated": db_cleared,
+        "redis_cleared": redis_cleared
+    }
+
+@router.post("/mock/scenario/{name}")
+async def run_scenario(name: str):
+    """
+    Executes a predefined demo scenario (a, b, c) from the UI.
+    Uses httpx to interact with the mock system API exactly as the python scripts do.
+    """
+    import time
+    ubid = "KA-TEST-0001"
+    
+    sws_cfg = _SYSTEM_CONFIG["sws"]
+    shop_cfg = _SYSTEM_CONFIG["shop"]
+    fact_cfg = _SYSTEM_CONFIG["factories"]
+    
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            if name == "a":
+                # Scenario A: SWS Address Update -> Propagation
+                new_addr = f"999 New MG Road, Indiranagar, Bangalore 560038 ({int(time.time())})"
+                await client.put(sws_cfg["base_url"] + sws_cfg["put_path"].format(ubid=ubid), json={"registered_address": new_addr})
+                return {"scenario": "a", "action": "updated SWS address", "ubid": ubid, "new_value": new_addr}
+                
+            elif name == "b":
+                # Scenario B: Factories Signatory Update -> Reverse Propagation
+                new_sig = f"Rajesh Kumar Sharma (Updated {int(time.time() % 10000)})"
+                await client.put(fact_cfg["base_url"] + fact_cfg["put_path"].format(ubid=ubid), json={"signatory_name": new_sig})
+                return {"scenario": "b", "action": "updated Factories signatory", "ubid": ubid, "new_value": new_sig}
+                
+            elif name == "c":
+                # Scenario C: Simultaneous Conflict
+                conflict_val_a = f"SWS Conflict Addr {int(time.time())}"
+                conflict_val_b = f"Factories Conflict Addr {int(time.time())}"
+                
+                # Fire almost simultaneously
+                import asyncio
+                await asyncio.gather(
+                    client.put(sws_cfg["base_url"] + sws_cfg["put_path"].format(ubid=ubid), json={"registered_address": conflict_val_a}),
+                    client.put(fact_cfg["base_url"] + fact_cfg["put_path"].format(ubid=ubid), json={"factory_address": conflict_val_b})
+                )
+                return {"scenario": "c", "action": "triggered conflict", "ubid": ubid, "sws_value": conflict_val_a, "factories_value": conflict_val_b}
+                
+            else:
+                raise HTTPException(status_code=400, detail="Unknown scenario")
+                
+    except Exception as e:
+        logger.error("scenario_run_error", scenario=name, error=str(e))
+        raise HTTPException(status_code=502, detail=f"Scenario failed: {e}")

@@ -568,3 +568,17 @@ tbody tr:hover {
   font-family: var(--font-mono);
   font-size: 13px;
 }
+
+/* ─── Live Demo Console Animations ────────────────────────────────────────── */
+
+.active-pulse {
+  animation: pulse-border 1.5s ease-out infinite;
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.2);
+  border-color: var(--gov-blue);
+}
+
+@keyframes pulse-border {
+  0% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.4); }
+  70% { box-shadow: 0 0 0 10px rgba(37, 99, 235, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0); }
+}
