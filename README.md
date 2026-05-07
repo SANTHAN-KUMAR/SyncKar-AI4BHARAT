@@ -14,97 +14,75 @@
 🔐 Court-Admissible Digital Audit Trails  
 🧠 AI-Assisted Schema Mapping
 
-SyncKar is an event driven interoperability layer designed to resolve the data synchronization challenges between Karnataka Single Window System and its 40+ legacy department systems. It enables real time, bidirectional state propagation without requiring modifications to any source system.
+SyncKar is a middleware layer that synchronizes state bidirectionally between the Karnataka Single Window System (SWS) and 40+ legacy department systems. The system strictly adheres to a "Leave and Layer" architecture: no modifications to source systems or their databases are permitted. 
 
 ## The Problem
 
-Karnataka Single Window System and legacy department systems currently operate as isolated data silos. When a business raises a service request on one portal, the update is not reflected in others. This split brain architecture leads to significant operational inefficiencies:
+Karnataka's e-governance infrastructure contains 40+ isolated legacy systems operating in parallel with the forward-looking Single Window System (SWS). A single-day cutover is not viable. 
 
-* 2,000,000+ registered businesses in Karnataka.
-* 3 to 5 distinct department systems interact with an average business.
-* 2 to 4 demographic or compliance updates occur per business annually.
-* Zero automated synchronization between state portals and department endpoints.
+Currently, an update to a business record (e.g., registered address) in SWS does not propagate to the Factories or Trade License systems, and vice versa. This split-brain architecture results in:
+* 4M–8M redundant form submissions annually by 2M+ businesses.
+* Unsynchronized state causing outdated field inspections and compliance notices.
+* No shared clock across 40+ endpoints, making timestamp-based conflict resolution impossible.
+* Legacy systems lacking event emission capabilities (no webhooks or message queues).
 
-The lack of integration forces citizens to repeat paperwork across multiple portals, causes field officers to conduct inspections based on stale data, and creates compliance failures when department records fall out of sync with reality.
 ## 🏛️ Why SyncKar?
 
-Government systems suffer from fragmented data silos.
+SyncKar implements a decentralized, protocol-agnostic propagation mechanism using the Unique Business Identifier (UBID) as the sole join key. If a record lacks a UBID, it is invisible to the sync layer by design. No heuristic matching or scoring is used.
 
-When a business updates details in Karnataka’s Single Window System (SWS), those changes often fail to propagate across:
-
-- Factories Department
-- Trade License Systems
-- Shops & Establishment
-- Labour Records
-- Taxation Systems
-
-This causes:
-
-❌ Duplicate paperwork  
-❌ Delayed approvals  
-❌ Outdated inspections  
-❌ Citizen frustration  
-❌ Compliance inconsistencies
-
-SyncKar solves this using an event-driven interoperability architecture powered by Kafka, Redis, PostgreSQL, and AI-assisted schema mapping.
-## The Solution
-
-A big bang migration of 40+ heterogeneous legacy systems is architecturally unviable and politically prohibitive. SyncKar provides an incremental, non invasive middleware layer that wraps around existing APIs, webhooks, and polling surfaces. 
-
-SyncKar stands out by adhering to strict, deterministic integration principles:
-
-* Leave and Layer: Zero modifications to SWS or department systems.
-* Deterministic Idempotency: Time independent, SHA 256 based keys ensure duplicate events from network retries are dropped without silent overwrites.
-* Automated Conflict Resolution: A sliding window matrix resolves simultaneous updates based on domain authority, backed by Kafka offset sequence numbers.
-* BSA 2023 Compliant Audit: Every synchronization event is hashed and signed, creating an append only, legally admissible ledger in PostgreSQL.
-* No Human Guesswork: SyncKar relies exclusively on the Unique Business Identifier as the join key. If the UBID exists, the record syncs; if not, it is ignored by design.
-
-By deploying SyncKar, the state can eliminate an estimated 4M to 8M redundant form submissions per year and reduce redundant verification visits by 50 to 70 percent.
+SyncKar guarantees strict per-business event ordering, mathematical idempotency against network retries, and automated conflict resolution without human intervention for 95% of collisions.
 
 ## Architecture Walkthrough
 
-SyncKar operates as a central event bus using Apache Kafka. Changes in either SWS or a department system are captured, translated into a canonical schema, and propagated to target systems.
+SyncKar connects unmodified source systems via a central Kafka event bus.
+
 <img width="1600" height="833" alt="synckar arch" src="https://github.com/user-attachments/assets/dc3be81c-caba-4e51-975c-53baa8c03bb6" />
 <img width="1258" height="868" alt="synckar aws arch" src="https://github.com/user-attachments/assets/53925844-6334-4089-b3ba-946952c08e15" />
 
-### 1. Ingress and Egress
-Changes are detected either via real time webhooks for modern systems like SWS or via stateful polling and cryptographic snapshot diffing for legacy systems without event capabilities.
+### 1. Ingress and Egress Paths
+* **SWS → Departments:** Webhook-driven. Changes are written to a PostgreSQL Transactional Outbox, published to Kafka (`sws.changes`), and consumed by department-specific adapters.
+* **Departments → SWS:** Pull-driven. Adapters perform stateful API polling (maintaining high-water marks) or cryptographic snapshot diffing (MurmurHash3) to detect legacy system mutations, translating them into canonical JSON events.
 
-### 2. Schema Translation
-Adapters use declarative mapping files stored in a Git backed Schema Registry to translate department specific schemas into a canonical JSON format.
+### 2. Schema Translation & Drift Detection
+Adapters process Git-versioned mapping files (YAML/JSON) to convert canonical payloads into SOAP/XML, REST, or CSV formats. A data observability module runs on the ingress path to flag structural anomalies (e.g., column renamed) or statistical drift (e.g., sudden null-rate spikes). Affected records enter a quarantine topic until the mapping version is updated.
 
-### 3. Idempotency Processing
-Before writing to any target API, the adapter checks a Redis backed Two Phase Reservation store. This ensures that retried Kafka messages do not result in duplicate API calls to fragile legacy endpoints.
+### 3. Deterministic Idempotency Engine
+To prevent duplicate writes on network failure, adapters compute a time-independent hash:
+`IdempotencyKey = SHA-256(source_system_id + source_event_id + UBID + field_name + new_value)`
+Write operations execute via a Two-Phase Reservation pattern in Redis (`SET NX`). If an adapter crashes post-write but pre-ACK, the Redis key (`COMPLETED`) forces the adapter to drop the Kafka retry.
 
-### 4. Conflict Resolution
-If multiple systems update the same field within a configurable time window, the Conflict Resolution Matrix applies a Last Write Wins or Domain Priority rule. The losing value is not deleted; it is preserved in the audit log.
+### 4. Automated Conflict Resolution
+Timestamp-based resolution fails across legacy systems. SyncKar uses Kafka offset sequence numbers for temporal ordering. If overlapping mutations for the same UBID and field occur within a configurable sliding window, a deterministic policy matrix applies:
+* **Source Priority:** SWS wins on universal demographics (e.g., Registered Address).
+* **Domain Priority:** Departments win on regulatory compliance fields (e.g., License Status).
+* **Broker Sequence:** Last-write-wins on unrestricted metadata based on Kafka offsets.
+The losing payload is logged in the audit trail, ensuring zero silent overwrites.
+
 ## ✨ Core Features
 
-## ⚡ Real-Time Bidirectional Sync
-Synchronizes updates between SWS and 40+ legacy systems.
+### ⚡ Event Broker and Outbox Pattern
+Kafka topics are partitioned by UBID to enforce strict ordering. The PostgreSQL Outbox guarantees event publication even during network partitions between the middleware and the broker.
 
-## 🔐 BSA 2023 Compliant Audit Trails
-RSA signatures + SHA256 hash chaining for court-admissible evidence.
+### 🔐 BSA 2023 Compliant Audit Ledger
+Fulfills Section 63(4) of the Bharatiya Sakshya Adhiniyam, 2023. Every transaction generates an append-only PostgreSQL row containing the `correlation_id`, old/new state, and resolution policy applied. Each row is individually hashed via SHA-256 and signed with an RSA private key.
 
-## 🧠 AI Schema Co-Pilot
-LLM-assisted YAML schema mapping with DPDP-compliant synthetic data.
+### 🧠 Privacy-Preserving AI Schema Co-Pilot
+Hosted LLMs accelerate the onboarding of new departments by drafting schema mappings. LLMs process only schema headers and DPDP-compliant synthetic data generated via an on-premises Synthetic Data Vault (SDV). A government architect certifies the draft before deployment.
 
-## 🛡️ Idempotency Engine
-Redis-backed deduplication preventing duplicate writes.
+### 🔥 Failure Modes and Circuit Breakers
+Department API latency variances are managed via per-adapter throttling (Kafka consumer group backpressure). Persistent legacy API failures trigger an `OPEN` circuit breaker state, pausing processing to prevent thundering-herd retry storms.
 
-## 🔥 Self-Healing Infrastructure
-Circuit breakers, DLQ recovery, adaptive retries, schema quarantine.
-## 📊 System Metrics
+## 📊 System Metrics & Throughput
 
-| Metric | Value |
+| Metric | Target Specification |
 |---|---|
-| Department Systems Supported | 40+ |
-| Sync Latency | < 5 seconds |
-| Conflict Resolution Automation | 95% |
-| Duplicate Write Prevention | 100% |
-| Statement Coverage | 80% |
-| Redundant Form Reduction | 4M–8M/year |
-| Manual Verification Reduction | 50–70% |
+| Sustained Event Rate | ~15–25 events/second |
+| Peak Write Throughput | ~2500–5000 API calls/second (batch spikes) |
+| Latency Profile | Near-real-time (webhooks); 30s–15min (polling) |
+| Conflict Resolution | Automated (95%); DLQ routing for unknowns (5%) |
+| Storage Profile | ~500GB/year for 2M businesses × 40 depts |
+| Code Coverage | 80% statement coverage |
+
 ## 📸 Screenshots
 <img width="1600" height="771" alt="liv pro 1" src="https://github.com/user-attachments/assets/21828197-388f-4c2a-bcdf-5c7fd44f5182" />
 <img width="1600" height="776" alt="liv pro 2" src="https://github.com/user-attachments/assets/66147631-356d-4091-b4c3-f279a11f5545" />
@@ -115,35 +93,45 @@ Circuit breakers, DLQ recovery, adaptive retries, schema quarantine.
 <img width="1600" height="815" alt="liv pro 7" src="https://github.com/user-attachments/assets/05ddb7f9-308a-41a6-967d-b2fc4fcdf6cb" />
 <img width="1600" height="772" alt="liv pro 8" src="https://github.com/user-attachments/assets/061fd101-e756-4420-9d07-264df126333b" />
 
-
 ## Project Structure
 
-The repository is cleanly segmented into core backend services, frontend dashboard, and infrastructure deployment files within the `synckar` directory.
+* `synckar/synckar/`: FastAPI backend adapters, Redis idempotency logic, and Kafka consumers/producers.
+* `synckar/mock_systems/`: Containerized endpoints mimicking SWS, Shop Establishment (SOAP), and Factories (REST).
+* `synckar/dashboard/`: React SPA. Functions as the Data Steward interface for DLQ review and audit searches.
+* `synckar/tests/`: Integration tests simulating dual-write conflicts, network partitions, and DB migrations.
 
-* `synckar/synckar/` Core interoperability layer backend.
-* `synckar/mock_systems/` Containerized simulations of SWS, Shop Establishment, and Factories.
-* `synckar/dashboard/` React based Data Steward interface for DLQ review and monitoring.
-* `synckar/tests/` Comprehensive test suite for flow verification and idempotency testing.
+## Instructions to Run
+
+Deployment relies on Docker and Docker Compose.
+
+### Local Deployment
+```bash
+cd synckar
+cp .env.example .env
+docker compose up --build -d
+```
+Wait for API health:
+```bash
+curl http://localhost:18080/health
+```
+Execute database migrations and seed mock data:
+```bash
+docker compose exec synckar-api python scripts/run_migrations.py
+docker compose exec synckar-api python scripts/seed_data.py
+```
+
+### Demo Scenarios
+The test scripts inject mock events to verify bidirectional propagation and conflict resolution logic.
+
+* **Scenario A (SWS → Departments):** `docker compose exec synckar-api python scripts/demo_scenario_a.py`
+* **Scenario B (Department → SWS):** `docker compose exec synckar-api python scripts/demo_scenario_b.py`
+* **Scenario C (Conflict Matrix):** `docker compose exec synckar-api python scripts/demo_scenario_c.py`
+
+Dashboard access: `http://localhost:18080/dashboard`
 
 ## Test Coverage and Verification
 
-SyncKar is designed for production reliability, maintaining an 80 percent statement coverage across all core interoperability modules.
-
-### Coverage Metrics
-
-```json
-{
-  "covered_lines": 920,
-  "num_statements": 1157,
-  "percent_covered": 80.0,
-  "missing_lines": 237,
-  "excluded_lines": 0
-}
-```
-
-### Integration Test Proofs
-
-The test suite systematically verifies connectivity, bidirectional data propagation, circuit breaker health, and audit trail integrity. A standard test run validates the following outcomes:
+SyncKar executes a robust suite testing idempotency, backoff algorithms, and ledger append consistency.
 
 ```text
 [INFO] Starting SyncKar full test suite on local environment
@@ -151,76 +139,43 @@ The test suite systematically verifies connectivity, bidirectional data propagat
 [PASS] SWS Health: http://localhost:8000/health
 [PASS] Shop Health: http://localhost:8001/health
 [PASS] SyncKar Health: http://localhost:18080/health
-[INFO] PART 2: Health Check Tests
-[PASS] SyncKar reports healthy status
-[PASS] Database connected
-[PASS] Redis connected
 [INFO] PART 4: Flow Test A: SWS to Departments Propagation
-[PASS] SWS update accepted
 [PASS] Shop Establishment propagation successful after 5s
 [INFO] PART 5: Flow Test B: Department to SWS Propagation
-[PASS] Factories update accepted
 [PASS] SWS propagation successful after 10s
 [INFO] PART 6: Audit Trail Tests
-[PASS] Audit trail has 4 entries for KA TEST 0001
 [PASS] Audit entries have correlation_id field
 [PASS] Audit entries have RSA signatures
 [INFO] PART 7: Dead Letter Queue Tests
 [PASS] DLQ is empty with no unresolved issues
 =========================================
-[INFO] Test Suite Complete
 All tests passed! (25/25)
 ```
-## 🎥 Live Demo
 
-Watch the prototype in action:
+## 🎥 Live Demo
 
 [▶️ Watch Demo](https://drive.google.com/file/d/1rN8x52SEZiRdaWp-g_cgM12UWZjaP2YT/view?usp=drivesdk)
 
-## 🛡️ Production Reliability
+## 🛡️ Resilience Configuration
 
-SyncKar is engineered for real-world government deployment.
-
-### Resilience Features
-
-✅ Adaptive Exponential Backoff  
-✅ Dead Letter Queue Recovery  
-✅ Circuit Breaker Architecture  
-✅ Schema Drift Quarantine  
-✅ Atomic PostgreSQL Outbox  
-✅ Replayable Kafka Event Streams  
-✅ Redis Failover Degradation Mode
-
----
+* **Exponential Backoff:** Configured on all external HTTP requests (1s → 2s → 4s → max 30min).
+* **Circuit Breaker:** Transitions to `OPEN` after 5 consecutive 5xx errors; pings every 60s in `HALF-OPEN`.
+* **DLQ Routing:** Unparseable payloads or maximum retry exhaustions are parked in PostgreSQL for Data Steward review.
+* **Nightly Reconciliation Job:** Compares random 1% samples of UBID records across endpoints to detect silent drift out-of-band.
 
 ## 🛠️ Tech Stack
 
 | Layer | Technology |
 |---|---|
-| Backend | FastAPI |
-| Event Streaming | Apache Kafka |
-| Database | PostgreSQL |
-| Cache | Redis |
-| Frontend | React |
-| AI Mapping | Bedrock LLM |
-| DevOps | Docker |
-| Cloud | AWS |
-| Security | RSA + SHA256 |
+| Backend Framework | Python FastAPI, Celery |
+| Event Broker | Apache Kafka (Partitioned per UBID) |
+| Transactional DB | PostgreSQL 16 (Append-only Ledger) |
+| State/Lock Store | Redis 7 (Two-Phase Reservation) |
+| Frontend Admin | React.js |
+| Mock Infrastructure | Docker, Docker Compose |
+
 ## 🌍 Public Sector Impact
 
-SyncKar enables Karnataka to modernize interoperability without replacing existing systems.
-
-Potential statewide impact:
-
-- 8M fewer redundant forms annually
-- Faster approvals for businesses
-- Reduced inspection overhead
-- Legally admissible audit evidence
-- Lower operational costs
-- Better citizen experience
-  
-🏆 AI4Bharat Innovation Project  
-🏛️ GovTech Interoperability Platform  
-⚡ Kafka-Powered Event Architecture  
-🔐 BSA 2023 Legal Compliance  
-🧠 AI-Assisted Schema Intelligence
+* Establishes court-admissible electronic records across state endpoints.
+* Enables non-invasive ingestion of 40+ independent technical stacks.
+* Quantifiable reduction of verification overhead for field officers working from stale datastores.
