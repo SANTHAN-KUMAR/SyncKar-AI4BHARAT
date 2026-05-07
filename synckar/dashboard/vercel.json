@@ -3,6 +3,8 @@
   "outputDirectory": "dist",
   "framework": "vite",
   "rewrites": [
+    { "source": "/api/(.*)", "destination": "http://65.0.204.4:18080/api/$1" },
+    { "source": "/health", "destination": "http://65.0.204.4:18080/health" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

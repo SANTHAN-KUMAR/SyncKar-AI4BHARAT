@@ -7,4 +7,16 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   base: process.env.VITE_BASE_PATH || '/dashboard/',
+  server: {
+    proxy: {
+      '/api': {
+        target: 'http://65.0.204.4:18080',
+        changeOrigin: true
+      },
+      '/health': {
+        target: 'http://65.0.204.4:18080',
+        changeOrigin: true
+      }
+    }
+  }
 })
