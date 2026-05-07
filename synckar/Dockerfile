@@ -5,7 +5,7 @@ WORKDIR /app
 # ─── Install Python dependencies ───
 COPY pyproject.toml .
 COPY alembic.ini .
-COPY ca.pem .
+# ca.pem removed — Kafka TLS cert is injected via KAFKA_CA_CERT_BASE64 env var at runtime
 COPY synckar/ synckar/
 COPY schema_registry/ schema_registry/
 COPY migrations/ migrations/
