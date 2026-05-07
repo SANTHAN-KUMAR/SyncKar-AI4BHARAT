@@ -61,7 +61,7 @@ The losing payload is logged in the audit trail, ensuring zero silent overwrites
 ## ✨ Core Features
 
 ### ⚡ Event Broker and Outbox Pattern
-Kafka topics are partitioned by UBID to enforce strict ordering. The PostgreSQL Outbox guarantees event publication even during network partitions between the middleware and the broker.
+Redpanda (Kafka-compatible API) topics are partitioned by UBID to enforce strict ordering. The PostgreSQL Outbox guarantees event publication even during network partitions between the middleware and the broker.
 
 ### 🔐 BSA 2023 Compliant Audit Ledger
 Fulfills Section 63(4) of the Bharatiya Sakshya Adhiniyam, 2023. Every transaction generates an append-only PostgreSQL row containing the `correlation_id`, old/new state, and resolution policy applied. Each row is individually hashed via SHA-256 and signed with an RSA private key.
@@ -100,39 +100,70 @@ Department API latency variances are managed via per-adapter throttling (Kafka c
 * `synckar/dashboard/`: React SPA. Functions as the Data Steward interface for DLQ review and audit searches.
 * `synckar/tests/`: Integration tests simulating dual-write conflicts, network partitions, and DB migrations.
 
-## Instructions to Run
+## 💻 Instructions to Run & Test
 
-Deployment relies on Docker and Docker Compose.
+Deployment relies on Docker and Docker Compose. All required infrastructure (Redpanda, PostgreSQL, Redis) and mock department endpoints are containerized.
 
-### Local Deployment
+### 1. Local Environment Setup
 ```bash
 cd synckar
 cp .env.example .env
-docker compose up --build -d
 ```
-Wait for API health:
+
+### 2. Bootstrapping Infrastructure
+Start the core services and wait for the API to report a healthy status:
 ```bash
+docker compose up --build -d
+
+# Verify connectivity
 curl http://localhost:18080/health
 ```
-Execute database migrations and seed mock data:
+
+### 3. Database Initialization
+Execute the schema migrations to configure the PostgreSQL outbox and audit ledgers, then seed the mock systems with initial state:
 ```bash
 docker compose exec synckar-api python scripts/run_migrations.py
 docker compose exec synckar-api python scripts/seed_data.py
 ```
 
-### Demo Scenarios
-The test scripts inject mock events to verify bidirectional propagation and conflict resolution logic.
+### 4. Executing Demo Scenarios
+The repository includes automated scripts that inject mutations to verify bidirectional propagation and conflict resolution.
 
-* **Scenario A (SWS → Departments):** `docker compose exec synckar-api python scripts/demo_scenario_a.py`
-* **Scenario B (Department → SWS):** `docker compose exec synckar-api python scripts/demo_scenario_b.py`
-* **Scenario C (Conflict Matrix):** `docker compose exec synckar-api python scripts/demo_scenario_c.py`
+* **Scenario A (SWS → Departments):** 
+  ```bash
+  docker compose exec synckar-api python scripts/demo_scenario_a.py
+  ```
+  *Action:* Updates business address in SWS.
+  *Expected:* Propagates to mock Shop Establishment and mock Factories endpoints.
 
-Dashboard access: `http://localhost:18080/dashboard`
+* **Scenario B (Department → SWS):**
+  ```bash
+  docker compose exec synckar-api python scripts/demo_scenario_b.py
+  ```
+  *Action:* Emulates a factory status change.
+  *Expected:* Propagates upward to SWS via pull-based polling.
 
-## Test Coverage and Verification
+* **Scenario C (Conflict Matrix):**
+  ```bash
+  docker compose exec synckar-api python scripts/demo_scenario_c.py
+  ```
+  *Action:* Fires simultaneous updates to the same UBID.
+  *Expected:* Deterministic resolution without silent overwrites.
 
-SyncKar executes a robust suite testing idempotency, backoff algorithms, and ledger append consistency.
+### 5. Accessing the Dashboard
+Open the React-based Data Steward interface to view the Dead Letter Queue (DLQ) and trace audit ledgers:
+* **URL:** `http://localhost:18080/dashboard`
 
+## 🧪 Test Coverage and Verification
+
+SyncKar executes a robust suite testing idempotency, backoff algorithms, and ledger append consistency. The test suite sits at an exact **80% statement coverage** threshold (`coverage.json`).
+
+To run the full suite:
+```bash
+docker compose exec synckar-api pytest tests/ -v
+```
+
+Expected output:
 ```text
 [INFO] Starting SyncKar full test suite on local environment
 [INFO] PART 1: Connectivity Tests
@@ -168,7 +199,7 @@ All tests passed! (25/25)
 | Layer | Technology |
 |---|---|
 | Backend Framework | Python FastAPI, Celery |
-| Event Broker | Apache Kafka (Partitioned per UBID) |
+| Event Broker | Redpanda (Kafka Protocol, Partitioned per UBID) |
 | Transactional DB | PostgreSQL 16 (Append-only Ledger) |
 | State/Lock Store | Redis 7 (Two-Phase Reservation) |
 | Frontend Admin | React.js |
